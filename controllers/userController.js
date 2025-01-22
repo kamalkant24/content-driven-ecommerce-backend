@@ -98,16 +98,33 @@ export const deleteUser = async (req, res) => {
     res.status(400).json({ error: err });
   }
 };
+// export const updateUser = async (req, res) => {
+//   const { email, name, phone } = req.body;
+//   try {
+//     const allUser = await UserRegister.updateOne(
+//       { email: email },
+//       { name: name, phone: phone }
+//     );
+//     res.status(200).json("UpdateSuccess");
+//   } catch (err) {
+//     res.status(400).json({ error: err });
+//   }
+// };
 export const updateUser = async (req, res) => {
   const { email, name, phone } = req.body;
   try {
-    const allUser = await UserRegister.updateOne(
+    const result = await UserRegister.updateOne(
       { email: email },
       { name: name, phone: phone }
     );
-    res.status(200).json("UpdateSuccess");
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.status(200).json({ message: "UpdateSuccess" });
   } catch (err) {
-    res.status(400).json({ error: err });
+    res.status(500).json({ error: "Internal Server Error", details: err.message });
   }
 };
 
@@ -118,7 +135,7 @@ export const getUserProfile = async (req, res) => {
     const user = await UserRegister.findById(decoded._id)
       .select("-password")
       .select("-confirmPassword");
-    user.profile_img = `${"http://localhost:3000/image/" + user.profile_img}`;
+    user.profile_img = `${"http://localhost:8080/image/" + user.profile_img}`;
 
     res.status(200).json(user);
   } catch (err) {
