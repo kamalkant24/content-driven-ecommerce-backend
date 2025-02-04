@@ -80,7 +80,7 @@ app.get("/", (req, res) => {
 });
 app.use("/api/v1/user", userRouter);
 
-server.listen(port, () => {
-  console.log(`Example app listening at http://localhost:${port}`);
+server.listen(port, '0.0.0.0',() => {
+  console.log(`Example app listening at http://0.0.0.0:${port}`);
 });
 
