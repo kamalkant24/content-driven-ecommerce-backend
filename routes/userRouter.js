@@ -3,7 +3,7 @@ import { login, register, getAllUser, deleteUser, updateUser, getUserProfile, lo
 import verifyToken from "../middleware/authMiddleware.js";
 import { download, getListFiles, upload } from "../controllers/file.Controller.js";
 import { createUserBlogs, getAllBlogs } from "../controllers/blogsController.js";
-import { createUserProducts, getAllProducts } from "../controllers/productsController.js";
+import { createUserProducts, getAllProducts, getProductById, updateProduct, deleteProduct } from "../controllers/productsController.js";
 import { searchAll } from "../controllers/globalSearchController.js";
 import { userChat } from "../controllers/chatController.js";
 import uploadImage from "../middleware/singleMulter.js";
@@ -28,6 +28,10 @@ userRouter.post('/create-products', verifyToken, uploadImage.array("image"), cre
 userRouter.get('/search-all', searchAll)
 userRouter.post('/user-chat', userChat)
 userRouter.get('/get-all-produts', verifyToken, getAllProducts)
+userRouter.get("/get-product/:id", verifyToken, getProductById);
+userRouter.put("/update-product/:id", verifyToken, updateProduct);
+userRouter.delete("/delete-product/:id", verifyToken, deleteProduct); // Soft delete
+
 userRouter.post('/add-to-cart', verifyToken, addToCart)
 userRouter.post('/update-cart', verifyToken, updateCart)
 userRouter.get('/carts', verifyToken, getCarts)
