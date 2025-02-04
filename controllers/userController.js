@@ -135,7 +135,7 @@ export const getUserProfile = async (req, res) => {
     const user = await UserRegister.findById(decoded._id)
       .select("-password")
       .select("-confirmPassword");
-    user.profile_img = `${"http://localhost:8080/image/" + user.profile_img}`;
+    user.profile_img = `${"http://192.168.31.57:8080/image/" + user.profile_img}`;
 
     res.status(200).json(user);
   } catch (err) {
