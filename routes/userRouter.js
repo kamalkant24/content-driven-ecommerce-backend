@@ -29,7 +29,7 @@ userRouter.get('/search-all', searchAll)
 userRouter.post('/user-chat', userChat)
 userRouter.get('/get-all-produts', verifyToken, getAllProducts)
 userRouter.get("/get-product/:id", verifyToken, getProductById);
-userRouter.put("/update-product/:id", verifyToken, updateProduct);
+userRouter.put("/update-product/:id", verifyToken,uploadImage.array("image"), updateProduct);
 userRouter.delete("/delete-product/:id", verifyToken, deleteProduct); // Soft delete
 
 userRouter.post('/add-to-cart', verifyToken, addToCart)
