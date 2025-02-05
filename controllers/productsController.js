@@ -1,4 +1,6 @@
 import userProducts from "../models/productsModels.js";
+import fs from "fs";
+import path from "path";
 
 export const createUserProducts = async (req, res) => {
   const {
@@ -69,17 +71,70 @@ export const getProductById = async (req, res) => {
 
 export const updateProduct = async (req, res) => {
   try {
+    const { title, quantity, price, description, createdAt, updateAt, like, cart, removeImages } = req.body;
+
+    console.log("Uploaded files:", req.files); // Debugging log
+
+    // Get new image filenames if uploaded
+    let newImages = [];
+    if (req.files && req.files.length > 0) {
+      newImages = req.files.map((file) => file.filename);
+    }
+
+    // Find the existing product
+    const existingProduct = await userProducts.findById(req.params.id);
+    if (!existingProduct) {
+      return res.status(404).json({ message: "Product not found" });
+    }
+
+    let updatedImages = existingProduct.image || [];
+
+    // Remove images from the database & delete from server if removeImages is provided
+    if (removeImages) {
+      const removeList = typeof removeImages === "string" ? JSON.parse(removeImages) : removeImages;
+
+      removeList.forEach((img) => {
+        const imagePath = path.join("uploads", img);
+        if (fs.existsSync(imagePath)) {
+          fs.unlinkSync(imagePath); // Delete the file from the server
+        }
+      });
+
+      // Remove images from the database array
+      updatedImages = updatedImages.filter((img) => !removeList.includes(img));
+    }
+
+    // Only update images if new ones are uploaded, otherwise just remove
+    if (newImages.length > 0) {
+      updatedImages = [...updatedImages, ...newImages];
+    }
+
+    // Prepare updated data
+    const updatedData = {
+      title: title || existingProduct.title,
+      quantity: quantity || existingProduct.quantity,
+      price: price || existingProduct.price,
+      description: description || existingProduct.description,
+      createdAt: createdAt || existingProduct.createdAt,
+      updateAt: updateAt || existingProduct.updateAt,
+      like: like !== undefined ? like : existingProduct.like,
+      cart: cart !== undefined ? cart : existingProduct.cart,
+      image: updatedImages, // Update image list in DB
+    };
+
+    // Update the product in the database
     const updatedProduct = await userProducts.findByIdAndUpdate(
       req.params.id,
-      { $set: req.body },
+      { $set: updatedData },
       { new: true }
     );
-    if (!updatedProduct) return res.status(404).json({ message: "Product not found" });
+
     res.status(200).json({ message: "Product updated successfully", data: updatedProduct });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 };
+
 
 export const deleteProduct = async (req, res) => {
   try {
