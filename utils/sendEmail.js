@@ -20,7 +20,7 @@ const sendEmail = (email, uniqueString) => {
     html: `
 <div style="display: flex; justify-content: center; align-items: center;">
     <div>
-        <button style=" text-align: center; font-size:10px" >Click <a style="color:blue;" href=http://localhost:5173/realestate/verify-email/${uniqueString}>here </a> to verify email</button>
+        <button style=" text-align: center; font-size:10px" >Click <a style="color:blue;" href=http://localhost:5173/verify-email/${uniqueString}>here </a> to verify email</button>
     </div>
 </div>`,
   };
