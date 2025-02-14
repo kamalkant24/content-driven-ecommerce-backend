@@ -1,174 +1,193 @@
+// Vendor & Customer Product Controller
+
 import userProducts from "../models/productsModels.js";
 import fs from "fs";
 import path from "path";
 
-export const createUserProducts = async (req, res) => {
-  const {
-    title,
-    quantity,
-    price,
-    createdAt,
-    description,
-    updateAt,
-    cart,
-    like,
-  } = req.body;
+// Middleware: Check if user is a vendor
+const isVendor = (req, res, next) => {
+  if (req.user.role !== 'vendor') {
+    return res.status(403).json({ message: "Access denied. Only vendors can perform this action." });
+  }
+  next();
+};
 
-  const fileName = req.files.map((x) => {
-    return x.filename;
-  });
+// Create a new product (Vendor Only)
+export const createUserProducts = [isVendor, async (req, res) => {
+  const { title, price, description, category, quantity, discount, variants } = req.body;
+
+  if (!title || !price || !description || !category || quantity === undefined) {
+    return res.status(400).json({ message: "Missing required fields: title, price, description, category, quantity" });
+  }
+
+  if (discount && (discount < 0 || discount > 100)) {
+    return res.status(400).json({ message: "Discount must be between 0 and 100" });
+  }
+
+  if (!req.files || req.files.length === 0) {
+    return res.status(400).json({ message: "At least one image is required" });
+  }
+
+  const fileNames = req.files.map(file => file.filename);
+
+  if (variants && variants.some(v => !v.size || !v.color)) {
+    return res.status(400).json({ message: "Each variant must have size and color" });
+  }
+
   try {
-    const products = new userProducts({
+    const newProduct = new userProducts({
+      vendor: req.user._id,
       title,
-      image: fileName,
-      quantity,
       price,
       description,
-      createdAt,
-      updateAt,
-      like,
-      cart,
- 
+      category,
+      quantity,
+      discount,
+      variants: variants || [],
+      availability: quantity > 0,
+      images: fileNames, // Supports multiple images
     });
 
-    const data = await products.save();
-    res.status(200).json({ message: "products Created successfully" }); // returning data with status code 200
+    const savedProduct = await newProduct.save();
+    res.status(201).json({ message: "Product created successfully", data: savedProduct });
   } catch (error) {
-    // this is for throwing error
-    res.status(400).json({ error: error.message });
+    res.status(500).json({ message: "Error creating the product", error: error.message });
   }
-};
+}];
 
+// Update Product (Vendor Only)
+
+export const updateProduct = [
+ // ✅ Multer Middleware
+  async (req, res) => {
+    const { title, price, description, category, quantity, discount, variants, imagesToDelete } = req.body;
+
+    try {
+      const existingProduct = await userProducts.findById(req.params.id);
+      if (!existingProduct) return res.status(404).json({ message: "Product not found" });
+
+      let updatedImages = [...existingProduct.images];
+
+      // 🗑️ **Delete Multiple Old Images**
+      if (imagesToDelete) {
+        const imagesArray = imagesToDelete.split(",").map((img) => img.trim()); // Convert comma-separated to array
+        imagesArray.forEach((img) => {
+          const imagePath = path.join("resource", "static", "assets", "products", img);
+          if (fs.existsSync(imagePath)) {
+            fs.unlinkSync(imagePath);
+            console.log(`🗑️ Deleted image: ${img}`);
+            updatedImages = updatedImages.filter((image) => image !== img);
+          } else {
+            console.warn(`⚠️ File not found: ${img}`);
+          }
+        });
+      }
+
+      // 📤 **Add New Images**
+      if (req.files && req.files.length > 0) {
+        const newImages = req.files.map((file) => file.filename);
+        updatedImages = [...updatedImages, ...newImages];
+        console.log(`✅ New images added: ${newImages}`);
+      }
+
+      const updatedData = {
+        title: title || existingProduct.title,
+        price: price || existingProduct.price,
+        description: description || existingProduct.description,
+        category: category || existingProduct.category,
+        quantity: quantity !== undefined ? quantity : existingProduct.quantity,
+        discount: discount !== undefined ? discount : existingProduct.discount,
+        variants: variants || existingProduct.variants,
+        availability: (quantity !== undefined ? quantity : existingProduct.quantity) > 0,
+        images: updatedImages,
+      };
+
+      const updatedProduct = await userProducts.findByIdAndUpdate(req.params.id, updatedData, { new: true });
+      res.status(200).json({ message: "✅ Product updated successfully", data: updatedProduct });
+    } catch (error) {
+      console.error("❌ Error updating the product:", error);
+      res.status(500).json({ message: "Error updating the product", error: error.message });
+    }
+  }
+];
+
+
+// Delete Product (Vendor Only)
+export const deleteProduct = [isVendor, async (req, res) => {
+  try {
+    const deletedProduct = await userProducts.findByIdAndDelete(req.params.id);
+    if (!deletedProduct) return res.status(404).json({ message: "Product not found" });
+
+    deletedProduct.images.forEach(img => {
+      const imagePath = path.join("resource", "static", "assets", "products", img);
+      if (fs.existsSync(imagePath)) fs.unlinkSync(imagePath);
+    });
+
+    res.status(200).json({ message: "Product deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ message: "Error deleting the product", error: error.message });
+  }
+}];
+
+// Get All Products (Accessible to Both Customers and Vendors)
 export const getAllProducts = async (req, res) => {
-  const { page, pageSize, search } = req.query;
+  const { page = 1, pageSize = 10, search, category, vendor, minPrice, maxPrice, sortByPrice } = req.query;
 
   try {
-    const allProducts = await userProducts.aggregate([
-      { $match: { title: { $regex: search || "", $options: "i" } } },
-      { $skip: (page - 1) * pageSize },
-      { $limit: parseInt(pageSize) },
-    ]);
+    const filters = {};
+    if (search) filters.title = { $regex: search, $options: "i" };
+    if (category) filters.category = category;
+    if (vendor) filters.vendor = vendor;
+    if (minPrice || maxPrice) {
+      filters.price = {};
+      if (minPrice) filters.price.$gte = Number(minPrice);
+      if (maxPrice) filters.price.$lte = Number(maxPrice);
+    }
 
-    const totalProductsCount = await userProducts.countDocuments({
-      title: { $regex: search || "", $options: "i" },
-   
-    });
+    const sortOrder = {};
+    if (sortByPrice === 'low-to-high') sortOrder.price = 1;
+    else if (sortByPrice === 'high-to-low') sortOrder.price = -1;
 
-    res.status(200).json({ data: allProducts, total: totalProductsCount });
-  } catch (err) {
-    res.status(400).json({ error: err });
+    const products = await userProducts.find(filters)
+      .sort(sortOrder)
+      .skip((page - 1) * pageSize)
+      .limit(parseInt(pageSize));
+
+    const totalCount = await userProducts.countDocuments(filters);
+    res.status(200).json({ data: products, total: totalCount, message: "Products fetched successfully" });
+  } catch (error) {
+    res.status(500).json({ message: "Error fetching products", error: error.message });
   }
 };
+
+// Get Product by ID
 export const getProductById = async (req, res) => {
   try {
     const product = await userProducts.findById(req.params.id);
     if (!product) return res.status(404).json({ message: "Product not found" });
-    res.status(200).json(product);
+
+    res.status(200).json({ message: "Product fetched successfully", data: product });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(500).json({ message: "Error fetching the product", error: error.message });
   }
 };
 
-export const updateProduct = async (req, res) => {
+// Get all products for the authenticated vendor
+export const getVendorProducts = async (req, res) => {
   try {
-    const { title, quantity, price, description, createdAt, updateAt, like, cart, removeImages } = req.body;
+    const vendorId = req.user._id;
 
-    console.log("Uploaded files:", req.files); // Debugging log
+    const products = await userProducts.find({ vendor: vendorId });
 
-    // Get new image filenames if uploaded
-    let newImages = [];
-    if (req.files && req.files.length > 0) {
-      newImages = req.files.map((file) => file.filename);
-    }
-
-    // Find the existing product
-    const existingProduct = await userProducts.findById(req.params.id);
-    if (!existingProduct) {
-      return res.status(404).json({ message: "Product not found" });
-    }
-
-    let updatedImages = existingProduct.image || [];
-
-    // Remove images from the database & delete from server if removeImages is provided
-    if (removeImages) {
-      const removeList = typeof removeImages === "string" ? JSON.parse(removeImages) : removeImages;
-
-      removeList.forEach((img) => {
-        const imagePath = path.join("uploads", img);
-        if (fs.existsSync(imagePath)) {
-          fs.unlinkSync(imagePath); // Delete the file from the server
-        }
-      });
-
-      // Remove images from the database array
-      updatedImages = updatedImages.filter((img) => !removeList.includes(img));
-    }
-
-    // Only update images if new ones are uploaded, otherwise just remove
-    if (newImages.length > 0) {
-      updatedImages = [...updatedImages, ...newImages];
-    }
-
-    // Prepare updated data
-    const updatedData = {
-      title: title || existingProduct.title,
-      quantity: quantity || existingProduct.quantity,
-      price: price || existingProduct.price,
-      description: description || existingProduct.description,
-      createdAt: createdAt || existingProduct.createdAt,
-      updateAt: updateAt || existingProduct.updateAt,
-      like: like !== undefined ? like : existingProduct.like,
-      cart: cart !== undefined ? cart : existingProduct.cart,
-      image: updatedImages, // Update image list in DB
-    };
-
-    // Update the product in the database
-    const updatedProduct = await userProducts.findByIdAndUpdate(
-      req.params.id,
-      { $set: updatedData },
-      { new: true }
-    );
-
-    res.status(200).json({ message: "Product updated successfully", data: updatedProduct });
+    res.status(200).json({
+      message: "Vendor products fetched successfully",
+      data: products,
+    });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    console.error("Error fetching vendor products:", error);
+    res.status(500).json({
+      message: "Error fetching vendor products",
+      error: error.message,
+    });
   }
 };
-
-
-export const deleteProduct = async (req, res) => {
-  try {
-    const deletedProduct = await userProducts.findByIdAndDelete(req.params.id);
-    if (!deletedProduct) return res.status(404).json({ message: "Product not found" });
-    res.status(200).json({ message: "Product deleted successfully" });
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-};
-
-// export const getAllProducts = async (req, res) => {
-//   const { page = 1, pageSize = 10, search = "" } = req.query;
-//   const baseUrl = "http://192.168.31.57:8080/image/";
-
-//   try {
-//     const allProducts = await userProducts.aggregate([
-//       { $match: { title: { $regex: search, $options: "i" } } },
-//       { $skip: (parseInt(page) - 1) * parseInt(pageSize) },
-//       { $limit: parseInt(pageSize) },
-//     ]);
-
-//     // Append image URL to each product
-//     const updatedProducts = allProducts.map((product) => ({
-//       ...product,
-//       imageUrl: product.image ? `${baseUrl}${product.image}` : null,
-//     }));
-
-//     const totalProductsCount = await userProducts.countDocuments({
-//       title: { $regex: search, $options: "i" },
-//     });
-
-//     res.status(200).json({ data: updatedProducts, total: totalProductsCount });
-//   } catch (err) {
-//     res.status(400).json({ error: err.message });
-//   }
-// };

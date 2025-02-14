@@ -5,73 +5,101 @@ import { jwtDecode } from "jwt-decode";
 import sendEmail from "../utils/sendEmail.js";
 import randString from "../utils/randString.js";
 
-export const register = async (req, res) => {
-  try {
-  const { name, email, password, phone, createdAt } = req.body;
-  console.log('password', password);
-    const isValid = false;
-    const uniqueString = randString();
-    const hashedPassword = await bcrypt.hash(password, 10);
-    console.log("hashedPassword",hashedPassword);
-    const data = {
-      email: email,
-      name: name,
-      password: hashedPassword,
-      phone: phone,
-      isReadDocumentation: false,
-      org_Name: "",
-      industry: "",
-      org_Size: "",
-    };
-    console.log("data",data);
-
-    const user = await UserRegister.create({ isValid, uniqueString, ...data });
-
-    if (user) {
-      sendEmail(email, user.uniqueString);
-      res.status(200).json({
-        code: 200,
-        message: "You are registered now.Please verify your email",
-      });
-    }
-    // res.redirect("back"); // redirecting to the main page
-  } catch (error) {
-    // this is for throwing error
-    res.status(400).json({ error: error.message });
-  }
+// Standard JSON Response Format
+const jsonResponse = (status, code, message, data = null) => {
+  return { status, code, message, data };
 };
 
+// User Registration
+export const register = async (req, res) => {
+  try {
+    const { name, email, password, confirmPassword, phone, address, org_Name, org_Size, description } = req.body;
+
+    if (!name || !email || !password || !confirmPassword || !phone) {
+      return res.status(400).json(jsonResponse("error", 400, "All required fields must be filled"));
+    }
+
+    if (password !== confirmPassword) {
+      return res.status(400).json(jsonResponse("error", 400, "Passwords do not match"));
+    }
+
+    const existingUser = await UserRegister.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json(jsonResponse("error", 400, "Email already registered"));
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const uniqueString = randString();
+
+    const user = await UserRegister.create({
+      name,
+      email,
+      password: hashedPassword,
+      phone,
+      address,
+      org_Name,
+      org_Size,
+      description,
+      isValid: false,
+      isApproved: false,
+      uniqueString,
+    });
+
+    sendEmail(email, uniqueString);
+    return res.status(200).json(jsonResponse("success", 200, "Registered successfully. Please verify your email.", user));
+  } catch (error) {
+    return res.status(400).json(jsonResponse("error", 400, error.message));
+  }
+};
+// User Login
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
-    const user = await UserRegister.findOne({ email });
-    if (!user) {
-      return res.status(400).json({ error: "Authentication failed" });
-    }
-    const passwordMatch = await bcrypt.compare(password, user.password);
-    if (!passwordMatch) {
-      return res.status(400).json({ error: "wrong password" });
-    }
-    if (user.isValid == false) {
-      return res.status(401).json({ code: 401, error: "User is not verified" });
-    }
-    const token = jsonwebtoken(user);
 
-    res.status(200).json({
-      code: 200,
-      token: token,
-      message: "User Logged in successfully",
-    });
+    if (!email || !password) {
+      return res.status(400).json(jsonResponse("error", 400, "Email and password are required"));
+    }
+
+    const user = await UserRegister.findOne({ email });
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      return res.status(400).json(jsonResponse("error", 400, "Invalid email or password"));
+    }
+
+    if (!user.isValid) return res.status(401).json(jsonResponse("error", 401, "Email not verified"));
+    if (user.role === "vendor" && !user.isApproved) return res.status(403).json(jsonResponse("error", 403, "Vendor account pending approval"));
+
+    const token = jsonwebtoken(user);
+    return res.status(200).json(jsonResponse("success", 200, "Login successful", { user, token }));
   } catch (error) {
-    res.status(500).json({ error: "Login failed" });
+    return res.status(500).json(jsonResponse("error", 500, "Login failed"));
   }
 };
 
+// Get All Users 
 export const getAllUser = async (req, res) => {
-  const { page, pageSize, search } = req.query;
+  const { page = 1, pageSize = 10, search } = req.query;
+  const token = req.header("Authorization");
+
+  // Check if the token is provided
+  if (!token) {
+    return res.status(401).json(
+      jsonResponse("error", 401, "Authorization token is required")
+    );
+  }
 
   try {
-    const allUser = await UserRegister.aggregate([
+    // Decode the token to get user info
+    const decoded = jwtDecode(token);
+
+    // Check if the user is an admin
+    if (decoded.role !== "admin") {
+      return res.status(403).json(
+        jsonResponse("error", 403, "Only admin can view all users")
+      );
+    }
+
+    // Pagination and Search Query
+    const allUsers = await UserRegister.aggregate([
       { $match: { email: { $regex: search || "", $options: "i" } } },
       { $skip: (page - 1) * pageSize },
       { $limit: parseInt(pageSize) },
@@ -81,118 +109,256 @@ export const getAllUser = async (req, res) => {
       email: { $regex: search || "", $options: "i" },
     });
 
-    res.status(200).json({ data: allUser, total: totalUsersCount });
+    return res.status(200).json(
+      jsonResponse("success", 200, "Users retrieved successfully", {
+        users: allUsers,
+        total: totalUsersCount,
+      })
+    );
   } catch (err) {
-    res.status(400).json({ error: err });
+    return res.status(400).json(
+      jsonResponse("error", 400, err.message)
+    );
   }
 };
 
+
+// Delete User (Admin Only)
 export const deleteUser = async (req, res) => {
   const { email } = req.body;
+  const token = req.header("Authorization");
 
-  try {
-    const allUser = await UserRegister.deleteOne({ email: email });
-
-    res.status(200).json("User deleted successfully");
-  } catch (err) {
-    res.status(400).json({ error: err });
-  }
-};
-// export const updateUser = async (req, res) => {
-//   const { email, name, phone } = req.body;
-//   try {
-//     const allUser = await UserRegister.updateOne(
-//       { email: email },
-//       { name: name, phone: phone }
-//     );
-//     res.status(200).json("UpdateSuccess");
-//   } catch (err) {
-//     res.status(400).json({ error: err });
-//   }
-// };
-export const updateUser = async (req, res) => {
-  const { email, name, phone } = req.body;
-  try {
-    const result = await UserRegister.updateOne(
-      { email: email },
-      { name: name, phone: phone }
+  // Check if token is provided
+  if (!token) {
+    return res.status(401).json(
+      jsonResponse("error", 401, "Authorization token is required")
     );
+  }
 
-    if (result.matchedCount === 0) {
-      return res.status(404).json({ message: "User not found" });
+  try {
+    // Decode the token to get user info
+    const decoded = jwtDecode(token);
+
+    // Check if the user is an admin
+    if (decoded.role !== "admin") {
+      return res.status(403).json(
+        jsonResponse("error", 403, "Only admin can delete users")
+      );
     }
 
-    res.status(200).json({ message: "UpdateSuccess" });
+    // Check if the email is provided
+    if (!email) {
+      return res.status(400).json(
+        jsonResponse("error", 400, "Email is required to delete a user")
+      );
+    }
+
+    const result = await UserRegister.deleteOne({ email });
+
+    // Check if the user was found and deleted
+    if (result.deletedCount === 0) {
+      return res.status(404).json(
+        jsonResponse("error", 404, "User with this email does not exist")
+      );
+    }
+
+    return res.status(200).json(
+      jsonResponse("success", 200, "User deleted successfully", result)
+    );
+
   } catch (err) {
-    res.status(500).json({ error: "Internal Server Error", details: err.message });
+    return res.status(400).json(
+      jsonResponse("error", 400, err.message)
+    );
   }
 };
 
+export const updateUser = async (req, res) => {
+  console.log("Request Body:", req.body);   // ✅ Check form fields
+  console.log("Request Files:", req.files); // ✅ Check uploaded files
+
+  const { email, name, phone, address, org_Name, industry, org_Size, description } = req.body;
+
+  if (!email || !email.trim()) {
+    return res.status(400).json(jsonResponse("error", 400, "Email is required"));
+  }
+
+  const trimmedEmail = email.trim().toLowerCase();
+
+  try {
+    console.log("Looking for user with email:", trimmedEmail);
+
+    const user = await UserRegister.findOne({ email: trimmedEmail });
+
+    if (!user) {
+      return res.status(404).json(jsonResponse("error", 404, "User not found"));
+    }
+
+    const updateData = { name, phone, address, description, org_Name, industry, org_Size };
+
+    // Logo upload for both customers and vendors
+    if (req.files?.logo && req.files.logo.length > 0) {
+      updateData.profile_img = req.files.logo[0].filename; 
+    }
+
+    // Banner upload only for vendors
+    if (user.role === "vendor") {
+      if (req.files?.banner && req.files.banner.length > 0) {
+        updateData.banner = req.files.banner[0].filename;
+      }
+    }
+
+    const updatedUser = await UserRegister.findOneAndUpdate(
+      { email: trimmedEmail },
+      updateData,
+      { new: true }
+    );
+
+    return res.status(200).json(jsonResponse("success", 200, "Update successful", updatedUser));
+  } catch (err) {
+    console.error("Error during user update:", err);
+    return res.status(500).json(
+      jsonResponse("error", 500, "Internal Server Error", { details: err.message })
+    );
+  }
+};
+
+
+
+
+// Get User Profile (Logged-In User Only)
 export const getUserProfile = async (req, res) => {
   try {
     const token = req.header("Authorization");
     const decoded = jwtDecode(token);
-    const user = await UserRegister.findById(decoded._id)
-      .select("-password")
-      .select("-confirmPassword");
-    user.profile_img = `${"http://192.168.31.57:8080/image/" + user.profile_img}`;
+    const user = await UserRegister.findById(decoded._id).select("-password");
 
-    res.status(200).json(user);
+    if (!user) {
+      return res.status(404).json(jsonResponse("error", 404, "User not found"));
+    }
+
+    // Add full URL for profile_img
+    if (user.profile_img) {
+      user.profile_img = `http://localhost:8080/image/${user.profile_img}`;
+    }
+
+    // ✅ Add full URL for vendor's banner
+    if (user.role === "vendor" && user.banner) {
+      user.banner = `http://localhost:8080/image/${user.banner}`;
+    }
+
+    return res
+      .status(200)
+      .json(jsonResponse("success", 200, "User profile retrieved successfully", user));
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    return res.status(400).json(jsonResponse("error", 400, err.message));
   }
 };
 
+
+// Log Out Functionality (User Session End)
 export const logOut = async (req, res) => {
   try {
     const token = req.header("Authorization");
-    if (!token) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
+    if (!token) return res.status(401).json({ error: "Unauthorized" });
+
     res.status(200).json("User logged out successfully");
   } catch (error) {
     res.status(500).json({ error: "Internal Server Error" });
   }
 };
 
+// Verify Email API (For Registration Confirmation)
 export const verifyApi = async (req, res) => {
   try {
     const { uniqueString } = req.params;
-    const user = await UserRegister.findOne({ uniqueString: uniqueString });
-    if (user) {
-      user.isValid = true;
-      user.uniqueString = "";
-      await user.save();
-      return res
-        .status(200)
-        .json({ code: 200, message: "user verified successfully" });
-    } else {
-      return res.status(400).json({ code: 400, message: "user not found" });
-    }
+    const user = await UserRegister.findOne({ uniqueString });
+
+    if (!user) return res.status(400).json({ error: "User not found" });
+
+    user.isValid = true;
+    user.uniqueString = ""; 
+    await user.save();
+
+    res.status(200).json({ code: 200, message: "User verified successfully" });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
+// Admin Approval for Vendor Accounts
+export const approveVendor = async (req, res) => {
+  const { email } = req.body;
+
+  try {
+    const user = await UserRegister.findOne({ email });
+    if (!user || user.role !== 'vendor') {
+      return res.status(400).json({ error: "Vendor not found" });
+    }
+
+    user.isApproved = true;
+    await user.save();
+    res.status(200).json({ message: "Vendor approved successfully" });
+  } catch (err) {
+    res.status(500).json({ error: "Error approving vendor" });
+  }
+};
+
+// Confirmation API (Assign Role Here with Logo and Banner Upload)
 export const confirmationApi = async (req, res) => {
   try {
-    const { org_Name, industry, org_Size } = req.body;
-    const file = req.file;
+    console.log("=== Uploaded Files ===", req.files); // Debugging uploaded files
+    console.log("=== Request Body ===", req.body);   // Debugging form data
+
     const token = req.header("Authorization");
     const decoded = jwtDecode(token);
-    await UserRegister.updateOne(
-      { email: decoded.email },
-      {
-        isReadDocumentation: true,
-        org_Name: org_Name,
-        industry: industry,
-        org_Size: org_Size,
-        profile_img: file.filename,
-      }
-    );
 
-    res.status(200).json({ code: 200, message: "confirmed" });
+    const { org_Name, industry, org_Size, description, role } = req.body;
+
+    if (!["vendor", "customer"].includes(role)) {
+      return res.status(400).json({ error: "Invalid role specified" });
+    }
+
+    const updateData = {
+      isReadDocumentation: true,
+      org_Name,
+      industry: role === "vendor" ? industry : undefined,
+      org_Size,
+      description,
+      role,
+      isApproved: role === "customer", // Customers are approved by default
+    };
+
+    // Safely accessing uploaded files
+    const logoFile = req.files?.logo?.[0];
+    const bannerFile = req.files?.banner?.[0];
+
+    console.log("Logo File:", logoFile);     // Log logo details
+    console.log("Banner File:", bannerFile); // Log banner details
+
+    // Check for logo (required for both customers and vendors)
+    if (!logoFile) {
+      return res.status(400).json({ error: "Logo is required for both customers and vendors" });
+    }
+    updateData.profile_img = logoFile.filename; // ✅ Save logo as profile_img
+
+    // Check for banner (required only for vendors)
+    if (role === "vendor") {
+      if (!bannerFile) {
+        return res.status(400).json({ error: "Banner is required for vendors" });
+      }
+      updateData.banner = bannerFile.filename;
+    }
+
+    // Update user information in the database
+    await UserRegister.updateOne({ email: decoded.email }, updateData);
+
+    res.status(200).json({ code: 200, message: "Confirmation successful" });
   } catch (error) {
+    console.error("Error:", error);
     res.status(500).json({ message: error.message });
   }
 };
+
+
+

@@ -1,6 +1,7 @@
 import express from "express";
 import { config } from "dotenv";
 import userRouter from "./routes/userRouter.js";
+import adminRoutes from "./routes/adminRoutes.js"
 import bodyParser from "body-parser";
 import cors from "cors";
 import mongodb from "./dbconfig.js";
@@ -79,8 +80,9 @@ app.get("/", (req, res) => {
   res.send("Hello World!");
 });
 app.use("/api/v1/user", userRouter);
+app.use("/api/v1/admin", adminRoutes)
 
-server.listen(port, '0.0.0.0',() => {
-  console.log(`Example app listening at http://0.0.0.0:${port}`);
+server.listen(port,() => {
+  console.log(`Example app listening at http://localhost:${port}`);
 });
 
