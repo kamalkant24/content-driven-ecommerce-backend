@@ -1,109 +1,282 @@
-import jsonwebtoken from "../jwt/jwt.js";  // Custom JWT module
-import Order from "../models/orderModel.js";  // Assuming you named your model 'Order'
-import userProducts from "../models/productsModels.js";
+import Stripe from "stripe";
+import jsonwebtoken from "../jwt/jwt.js";
+import Order from "../models/orderModel.js";
+import userCart from "../models/cartModel.js";
+import CheckoutModel from "../models/checkoutModel.js";
+import nodemailer from "nodemailer";
+import dotenv from "dotenv";
+import { verifyToken } from "../middleware/authMiddleware.js";
+import userRegister from "../models/newUserRegisterModel.js"
+dotenv.config();
 
-// Token verification function using custom jsonwebtoken module
-const verifyToken = (token) => {
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+export const checkout = async (req, res) => {
   try {
-    return jsonwebtoken.verifyToken(token);  // Assuming verifyToken method is implemented in jsonwebtoken.js
-  } catch (error) {
-    return null;
-  }
-};
+    if (!req.user) return res.status(401).json({ message: "Unauthorized access." });
 
-// Create an order
-export const createOrder = async (req, res) => {
-  try {
-    const token = req.header("Authorization");
-    const decoded = verifyToken(token);
-    
-    if (!decoded) {
-      return res.status(401).json({ message: "Invalid or expired token" });
-    }
+    const { shipping, offer } = req.body;
+    if (!shipping?.price || !offer?.discount)
+      return res.status(400).json({ message: "Invalid shipping or offer details." });
 
-    const { products, totalAmount, paymentMethod, shippingAddress } = req.body;
+    const cart = await userCart.findOne({ customer: req.user._id }).populate("products.product", "title price");
+    if (!cart || !cart.products.length) return res.status(400).json({ message: "Cart is empty." });
 
-    // Check for product availability
-    for (const product of products) {
-      const productInDb = await userProducts.findById(product.productId);
-      if (productInDb.quantity < product.quantity) {
-        return res.status(400).json({ message: `Not enough stock for product ${productInDb.name}` });
-      }
-    }
+    const validProducts = cart.products.filter(p => p.product?.title && p.product?.price);
+    if (!validProducts.length) return res.status(400).json({ message: "No valid products found." });
 
-    // Create order with provided information
-    const newOrder = new Order({
-      customer: decoded._id,
-      products: products.map((product) => ({
-        product: product.productId,
-        quantity: product.quantity
-      })),
-      totalAmount,
-      paymentMethod,
-      shippingAddress
+    const totalPrice = validProducts.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
+    const discountAmount = (totalPrice * offer.discount) / 100;
+    const netPrice = (totalPrice + shipping.price - discountAmount).toFixed(2);
+
+    const lineItems = validProducts.map(item => ({
+      price_data: {
+        currency: "usd",
+        product_data: { name: item.product.title },
+        unit_amount: Math.round(item.product.price * 100),
+      },
+      quantity: item.quantity,
+    }));
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      mode: "payment",
+      success_url: `${process.env.CLIENT_URL}/order-success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.CLIENT_URL}/order-cancelled`,
+      customer_email: req.user.email,
+      line_items: lineItems,
+      metadata: { userId: req.user._id },
     });
 
-    // Save the order to the database
-    await newOrder.save();
-    res.status(201).json({ message: "Order created successfully", order: newOrder });
+    await new CheckoutModel({
+      customer: req.user._id,
+      noOfItems: validProducts.length,
+      totalPrice,
+      shipping,
+      offer,
+      netPrice,
+      stripeSessionId: session.id,
+      products: validProducts.map(p => ({ product: p.product._id, quantity: p.quantity })),
+    }).save();
+
+    res.status(200).json({ url: session.url });
   } catch (error) {
+    console.error("Checkout Error:", error);
     res.status(500).json({ errorMessage: error.message });
   }
 };
+export const stripeWebhook = async (req, res) => {
+  const sig = req.headers['stripe-signature'];
 
-// Get all orders for a user (customer)
+  if (!sig) {
+    console.error("❌ No stripe-signature header provided.");
+    return res.status(400).json({ message: "No stripe-signature header value was provided." });
+  }
+
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+    console.log(`✅ Signature verified. Event type: ${event.type}`);
+  } catch (err) {
+    console.error(`❌ Webhook Error: ${err.message}`);
+    return res.status(400).json({ message: `Webhook Error: ${err.message}` });
+  }
+
+  if (event.type === "payment_intent.succeeded") {
+    const paymentIntent = event.data.object;
+
+    try {
+      // Retrieve Checkout Session associated with the Payment Intent
+      const sessionList = await stripe.checkout.sessions.list({
+        payment_intent: paymentIntent.id,
+        limit: 1,
+      });
+
+      if (!sessionList.data.length) {
+        console.warn(`⚠️ No Checkout Session found for Payment Intent: ${paymentIntent.id}`);
+        return res.status(404).json({ message: "Checkout session not found." });
+      }
+
+      const session = sessionList.data[0];
+
+      // ✅ Update the Payment Intent with the Checkout Session ID if missing
+      if (!paymentIntent.metadata?.stripeSessionId) {
+        await stripe.paymentIntents.update(paymentIntent.id, {
+          metadata: { stripeSessionId: session.id },
+        });
+        console.log(`🔄 Added stripeSessionId to Payment Intent metadata: ${session.id}`);
+      }
+
+      // Find the checkout data using the Checkout Session ID
+      const checkoutData = await CheckoutModel.findOne({ stripeSessionId: session.id }).populate("customer");
+
+      if (!checkoutData) {
+        console.warn(`⚠️ No checkout data found for session: ${session.id}`);
+        return res.status(404).json({ message: "Checkout data not found." });
+      }
+
+      console.log(`🔍 Found checkout session: ${session.id}`);
+
+      // ✅ Fetch user's address (string) from userRegister model
+      const user = await userRegister.findById(checkoutData.customer._id);
+
+      if (!user || !user.address) {
+        console.warn(`⚠️ No address found for user: ${checkoutData.customer._id}`);
+        return res.status(404).json({ message: "User address not found." });
+      }
+
+      const shippingAddress = user.address; // Address is a string in the schema
+
+      const newOrder = new Order({
+        customer: checkoutData.customer._id,
+        products: checkoutData.products,
+        totalAmount: checkoutData.netPrice,
+        paymentStatus: "completed",
+        paymentMethod: session.payment_method_types?.[0] || "unknown",
+        orderStatus: "pending",
+        shippingAddress, // ✅ Directly use the string address
+        createdAt: new Date(checkoutData.createdAt),
+      });
+
+      await newOrder.save();
+      console.log(`✅ Order saved with ID: ${newOrder._id}`);
+
+      await userCart.findOneAndDelete({ customer: checkoutData.customer._id });
+      console.log(`🗑️ User cart cleared for customer: ${checkoutData.customer._id}`);
+
+      const customerEmail = session.customer_details?.email || paymentIntent.receipt_email;
+      if (customerEmail) {
+        await sendOrderConfirmationEmail(customerEmail, newOrder._id);
+        console.log(`📧 Order confirmation email sent to: ${customerEmail}`);
+      } else {
+        console.warn("⚠️ No customer email found in session or payment intent.");
+      }
+
+    } catch (err) {
+      console.error(`❌ Error handling payment intent: ${err.message}`);
+      return res.status(500).json({ message: "Error processing order." });
+    }
+  }
+
+  res.status(200).json({ received: true });
+};
+
+
+// ✅ Additionally, ensure you create the Checkout Session with metadata like this:
+export const createCheckoutSession = async (req, res) => {
+  try {
+    const session = await stripe.checkout.sessions.create({
+      payment_intent_data: {
+        metadata: { stripeSessionId: 'your_session_id_here' },
+      },
+      // Add your required checkout options (line items, success URL, etc.)
+    });
+
+    res.status(200).json({ sessionId: session.id });
+  } catch (err) {
+    console.error(`❌ Error creating Checkout Session: ${err.message}`);
+    res.status(500).json({ message: "Failed to create checkout session." });
+  }
+};
+
+
+
+
+// ✅ Get all orders for a user
 export const getUserOrders = async (req, res) => {
   try {
     const token = req.header("Authorization");
     const decoded = verifyToken(token);
 
-    if (!decoded) {
-      return res.status(401).json({ message: "Invalid or expired token" });
-    }
+    if (!decoded) return res.status(401).json({ message: "Invalid or expired token" });
 
-    // Get all orders made by the user (customer)
-    const orders = await Order.find({ customer: decoded._id }).populate('products.product');
+    const orders = await Order.find({ customer: decoded._id }).populate("products.product");
 
-    if (!orders.length) {
-      return res.status(404).json({ message: "No orders found" });
-    }
+    if (!orders.length) return res.status(404).json({ message: "No orders found" });
 
-    res.status(200).json({ code: 200, orders });
+    res.status(200).json({ orders });
   } catch (error) {
     res.status(500).json({ errorMessage: error.message });
   }
 };
 
-// Get a specific order by ID (for both customers and admins)
+// ✅ Get all orders (Admin only)
+export const getAllOrders = async (req, res) => {
+  try {
+    const token = req.header("Authorization");
+    const decoded = verifyToken(token);
+
+    if (!decoded || !decoded.isAdmin) {
+      return res.status(403).json({ message: "Admin privileges required" });
+    }
+
+    const orders = await Order.find().populate("customer").populate("products.product");
+
+    if (!orders.length) return res.status(404).json({ message: "No orders found" });
+
+    res.status(200).json({ orders });
+  } catch (error) {
+    res.status(500).json({ errorMessage: error.message });
+  }
+};
+
+export const cancelOrder = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const token = req.header("Authorization");
+    const decoded = verifyToken(token);
+
+    if (!decoded) return res.status(401).json({ message: "Invalid or expired token" });
+
+    const order = await Order.findById(orderId);
+
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    // Sirf order ka owner hi cancel kar sakta hai
+    if (order.customer.toString() !== decoded._id.toString()) {
+      return res.status(403).json({ message: "You can only cancel your own orders" });
+    }
+
+    // Order sirf "pending" state me cancel ho sakta hai
+    if (order.orderStatus !== "pending") {
+      return res.status(400).json({ message: "Order cannot be cancelled after processing" });
+    }
+
+    order.orderStatus = "cancelled";
+    await order.save();
+
+    res.status(200).json({ message: "Order cancelled successfully" });
+  } catch (error) {
+    res.status(500).json({ errorMessage: error.message });
+  }
+};
+
+
+// ✅ Get order by ID
 export const getOrderById = async (req, res) => {
   try {
     const { orderId } = req.params;
     const token = req.header("Authorization");
     const decoded = verifyToken(token);
 
-    if (!decoded) {
-      return res.status(401).json({ message: "Invalid or expired token" });
-    }
+    if (!decoded) return res.status(401).json({ message: "Invalid or expired token" });
 
-    // Find the order by ID and populate the products
-    const order = await Order.findById(orderId).populate('products.product');
+    const order = await Order.findById(orderId).populate("products.product");
 
-    if (!order) {
-      return res.status(404).json({ message: "Order not found" });
-    }
+    if (!order) return res.status(404).json({ message: "Order not found" });
 
-    // Allow customers to see only their own orders or admins to see any order
     if (order.customer.toString() !== decoded._id.toString() && !decoded.isAdmin) {
       return res.status(403).json({ message: "You do not have permission to view this order" });
     }
 
-    res.status(200).json({ code: 200, order });
+    res.status(200).json({ order });
   } catch (error) {
     res.status(500).json({ errorMessage: error.message });
   }
 };
 
-// Update order status (for admins or customers)
+// ✅ Update an order's status (Admin only)
 export const updateOrderStatus = async (req, res) => {
   try {
     const { orderId } = req.params;
@@ -111,161 +284,66 @@ export const updateOrderStatus = async (req, res) => {
     const token = req.header("Authorization");
     const decoded = verifyToken(token);
 
-    if (!decoded) {
-      return res.status(401).json({ message: "Invalid or expired token" });
+    if (!decoded || !decoded.isAdmin) {
+      return res.status(403).json({ message: "Admin privileges required" });
     }
 
-    // Fetch the order by ID
+    if (!orderStatus || !["pending", "shipped", "delivered", "cancelled"].includes(orderStatus)) {
+      return res.status(400).json({ message: "Invalid order status" });
+    }
+
     const order = await Order.findById(orderId);
 
-    if (!order) {
-      return res.status(404).json({ message: "Order not found" });
-    }
+    if (!order) return res.status(404).json({ message: "Order not found" });
 
-    // Only allow customers to modify the order status if it's their own order
-    if (order.customer.toString() !== decoded._id.toString() && !decoded.isAdmin) {
-      return res.status(403).json({ message: "You do not have permission to update this order" });
-    }
-
-    // If the user is an admin or the customer, update the status
     order.orderStatus = orderStatus;
     await order.save();
 
-    res.status(200).json({ message: "Order status updated", order });
+    res.status(200).json({ message: `Order status updated to ${orderStatus}` });
   } catch (error) {
     res.status(500).json({ errorMessage: error.message });
   }
 };
 
-// Cancel an order (for customers, when order status is pending)
-export const cancelOrder = async (req, res) => {
-  try {
-    const { orderId } = req.params;
-    const token = req.header("Authorization");
-    const decoded = verifyToken(token);
-
-    if (!decoded) {
-      return res.status(401).json({ message: "Invalid or expired token" });
-    }
-
-    // Find the order by ID
-    const order = await Order.findById(orderId);
-
-    if (!order) {
-      return res.status(404).json({ message: "Order not found" });
-    }
-
-    // Check if the order is in a cancellable state (e.g., 'pending')
-    if (order.orderStatus !== "pending") {
-      return res.status(400).json({ message: "Cannot cancel order. Order has already been processed." });
-    }
-
-    // Ensure that the customer who created the order is the one trying to cancel it
-    if (order.customer.toString() !== decoded._id.toString()) {
-      return res.status(403).json({ message: "You do not have permission to cancel this order" });
-    }
-
-    // Update the order status to "cancelled"
-    order.orderStatus = "cancelled";
-    await order.save();
-
-    res.status(200).json({ message: "Order cancelled successfully", order });
-  } catch (error) {
-    res.status(500).json({ errorMessage: error.message });
-  }
-};
-
-// Delete an order (only if the order status is "pending")
+// ✅ Delete an order (Admin only)
 export const deleteOrder = async (req, res) => {
   try {
     const { orderId } = req.params;
     const token = req.header("Authorization");
     const decoded = verifyToken(token);
 
-    if (!decoded) {
-      return res.status(401).json({ message: "Invalid or expired token" });
+    if (!decoded || !decoded.isAdmin) {
+      return res.status(403).json({ message: "Admin privileges required" });
     }
 
-    // Find the order by ID
     const order = await Order.findById(orderId);
 
-    if (!order) {
-      return res.status(404).json({ message: "Order not found" });
-    }
+    if (!order) return res.status(404).json({ message: "Order not found" });
 
-    // Only allow deletion of pending orders
-    if (order.orderStatus === "pending") {
-      // Ensure that the customer who created the order is the one trying to delete it
-      if (order.customer.toString() !== decoded._id.toString()) {
-        return res.status(403).json({ message: "You do not have permission to delete this order" });
-      }
+    await order.remove();
 
-      await order.remove();
-      return res.status(200).json({ message: "Order deleted successfully" });
-    } else {
-      return res.status(400).json({ message: "Cannot delete order. Order has already been processed" });
-    }
+    res.status(200).json({ message: "Order deleted successfully" });
   } catch (error) {
     res.status(500).json({ errorMessage: error.message });
   }
 };
 
+// ✅ Email Notification Function
+const sendOrderConfirmationEmail = async (email, orderId) => {
+  const transporter = nodemailer.createTransport({
+    service: "Gmail",
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS,
+    },
+  });
 
-// Secure Checkout
-export const checkout = async (req, res) => {
-  try {
-    // Extract & verify token
-    const token = req.header("Authorization");
-    if (!token) return res.status(401).json({ message: "Unauthorized" });
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: "Order Confirmation",
+    text: `Your order has been placed successfully. Your order ID is ${orderId}.`,
+  };
 
-    let decoded;
-    try {
-      decoded = verifyToken(token);
-    } catch (err) {
-      return res.status(401).json({ message: "Invalid Token" });
-    }
-
-    // Get data from request body
-    const { shipping, offer } = req.body;
-    
-    // Validate shipping & offer
-    if (!shipping || typeof shipping.price !== "number") {
-      return res.status(400).json({ message: "Invalid shipping details" });
-    }
-    if (!offer || typeof offer.discount !== "number") {
-      return res.status(400).json({ message: "Invalid offer details" });
-    }
-
-    // Fetch user's cart
-    const cart = await userCart.findOne({ customer: decoded._id }).populate("products.product");
-    if (!cart || cart.products.length === 0) return res.status(400).json({ message: "Cart is empty" });
-
-    // Calculate total price
-    let totalPrice = 0;
-    cart.products.forEach(item => {
-      if (item.product && item.product.price) {
-        totalPrice += item.product.price * item.quantity;
-      }
-    });
-
-    // Calculate discount and net price
-    const discountAmount = (totalPrice * offer.discount) / 100;
-    const netPrice = (totalPrice + shipping.price - discountAmount).toFixed(2);
-
-    // Store checkout details in database (if needed)
-    const checkoutData = new CheckoutModel({
-      customer: decoded._id,
-      noOfItems: cart.products.length,
-      totalPrice,
-      shipping,
-      offer,
-      netPrice,
-    });
-    await checkoutData.save(); // Save to database
-
-    // Send response
-    res.status(200).json({ checkoutDetails: checkoutData });
-  } catch (error) {
-    res.status(500).json({ errorMessage: error.message });
-  }
+  await transporter.sendMail(mailOptions);
 };

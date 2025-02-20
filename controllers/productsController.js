@@ -191,3 +191,145 @@ export const getVendorProducts = async (req, res) => {
     });
   }
 };
+
+
+
+export const checkout = async (req, res) => {
+  try {
+    console.log("Request Headers:", req.headers);
+
+    if (!req.user) {
+      return res.status(401).json({ message: "Unauthorized access. Token verification failed." });
+    }
+
+    const { shipping, offer } = req.body;
+
+    if (!shipping || typeof shipping.price !== "number")
+      return res.status(400).json({ message: "Invalid shipping details" });
+
+    if (!offer || typeof offer.discount !== "number")
+      return res.status(400).json({ message: "Invalid offer details" });
+
+    const cart = await userCart.findOne({ customer: req.user._id }).populate({
+      path: "products.product",
+      select: "title price",
+    });
+
+    if (!cart || cart.products.length === 0) {
+      return res.status(400).json({ message: "Cart is empty" });
+    }
+
+    console.log("Raw Cart Data:", JSON.stringify(cart, null, 2));
+
+    const validProducts = cart.products.filter(item => item.product && item.product.title && item.product.price);
+
+    if (validProducts.length === 0) {
+      return res.status(400).json({ message: "No valid products found in the cart" });
+    }
+
+    let totalPrice = validProducts.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
+    const discountAmount = (totalPrice * offer.discount) / 100;
+    const netPrice = (totalPrice + shipping.price - discountAmount).toFixed(2);
+
+    const lineItems = validProducts.map(item => ({
+      price_data: {
+        currency: "usd",
+        product_data: { name: item.product.title },
+        unit_amount: Math.round(item.product.price * 100),
+      },
+      quantity: item.quantity,
+    }));
+
+    console.log("Stripe Line Items:", JSON.stringify(lineItems, null, 2));
+
+    // ✅ Stripe checkout session create
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      mode: "payment",
+      success_url: `${process.env.CLIENT_URL}/order-success?session_id=${session.id}`,
+      cancel_url: `${process.env.CLIENT_URL}/order-cancelled`,
+      customer_email: req.user.email,
+      line_items: lineItems,
+      metadata: { session_id: req.user._id },
+    });
+
+    // ✅ Checkout Data Save in DB
+    const checkoutData = new CheckoutModel({
+      customer: req.user._id,
+      noOfItems: validProducts.length,
+      totalPrice,
+      shipping: { label: shipping.label, price: shipping.price },
+      offer: { label: offer.label, discount: offer.discount },
+      netPrice,
+      stripeSessionId: session.id,
+      products: validProducts.map(item => ({
+        product: item.product._id,
+        quantity: item.quantity,
+      })),
+    });
+    await checkoutData.save();
+
+    // ✅ **Webhook Jaisa Payment Status Check using Stripe Events**
+    let paymentConfirmed = false;
+    const checkPaymentStatus = async () => {
+      try {
+        const event = await stripe.checkout.sessions.retrieve(session.id, {
+          expand: ["payment_intent"],
+        });
+
+        console.log("Stripe Event Data:", JSON.stringify(event, null, 2));
+
+        if (event.payment_intent && event.payment_intent.status === "succeeded" && !paymentConfirmed) {
+          paymentConfirmed = true;
+
+          console.log("✅ Payment Successful, Creating Order...");
+
+          const checkoutData = await CheckoutModel.findOne({ stripeSessionId: session.id }).populate("customer");
+
+          if (checkoutData) {
+            const newOrder = new Order({
+              customer: checkoutData.customer,
+              products: checkoutData.products,
+              totalAmount: checkoutData.totalPrice,
+              paymentStatus: "completed",
+              paymentMethod: "credit card",
+              orderStatus: "pending",
+              shippingAddress: checkoutData.shipping.address,
+            });
+
+            await newOrder.save();
+
+            // ✅ Clear user cart
+            await userCart.findOneAndDelete({ customer: checkoutData.customer });
+
+            // ✅ Send confirmation email
+            sendOrderConfirmationEmail(req.user.email, newOrder._id);
+
+            console.log("✅ Order Created and Email Sent!");
+          }
+        }
+      } catch (err) {
+        console.error("Error Checking Payment Status:", err.message);
+      }
+    };
+
+    // **Check payment every 5 seconds, up to 60 seconds max**
+    let attempts = 0;
+    const interval = setInterval(async () => {
+      if (paymentConfirmed || attempts >= 12) {
+        clearInterval(interval);
+      } else {
+        attempts++;
+        await checkPaymentStatus();
+      }
+    }, 5000);
+
+    res.status(200).json({ checkoutSessionId: session.id, url: session.url });
+
+  } catch (error) {
+    console.error("Checkout Error:", error);
+    res.status(500).json({ errorMessage: error.message });
+  }
+};
+
+

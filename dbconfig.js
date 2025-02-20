@@ -37,6 +37,7 @@ const mondoDB = async () => {
     await mongoose.connect(dbHost, {
       useNewUrlParser: true,
       useUnifiedTopology: true,
+     
     });
 
     console.log("Connected with database");

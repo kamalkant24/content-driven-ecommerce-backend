@@ -1,7 +1,7 @@
 import express from "express";
 import { config } from "dotenv";
 import userRouter from "./routes/userRouter.js";
-import adminRoutes from "./routes/adminRoutes.js"
+import adminRoutes from "./routes/adminRoutes.js";
 import bodyParser from "body-parser";
 import cors from "cors";
 import mongodb from "./dbconfig.js";
@@ -17,32 +17,45 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-app.use(cors());
-
-app.use(bodyParser.urlencoded({ extended: false }));
-
-app.use(bodyParser.json());
-
-
+// ✅ Connect to MongoDB
 mongodb();
 
+// ✅ CORS setup
+app.use(cors());
+
+// ✅ Raw body parser ONLY for Stripe webhook (must be before express.json())
+// ✅ Place this BEFORE any other middleware
+app.use('/api/v1/user/stripe-webhook', bodyParser.raw({ type: 'application/json' }));
+
+
+
+
+// ✅ Apply body parsers AFTER webhook route to avoid signature issues
+app.use(bodyParser.urlencoded({ extended: false }));
+app.use(bodyParser.json());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// ✅ CORS headers middleware
 app.all('/*', (req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*')
-  res.header('Access-Control-Request-Headers', '*')
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Access-Control-Allow-Headers, x-auth-token, x-l10n-locale, Cache-Control, timeout, form-data')
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE')
-  next()
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, x-auth-token');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
+  next();
 });
 
-const activeUsers = {};
+// ✅ Static files and routes
+app.use(express.static(__dirname + '/ejs'));
+app.use('/image', express.static('resource/static/assets/profile'));
 
-const server = createServer(app)
+app.get("/", (req, res) => {
+  res.send("Hello World!");
+});
 
-
-// const server = app.listen(1337, () => {
-//   console.log("Server running at port!");
-// });
+// ✅ Socket.io setup
+const server = createServer(app);
 const io = new Server(server);
+const activeUsers = {};
 
 io.on("connection", (socket) => {
   console.log('User connected:', socket.id);
@@ -72,17 +85,10 @@ io.on("connection", (socket) => {
 
   io.emit('active-users', Object.keys(activeUsers));
 });
-
-const port = process.env.PORT;
-app.use(express.static(__dirname + 'ejs'))
-app.use('/image', express.static('resource/static/assets/profile'))
-app.get("/", (req, res) => {
-  res.send("Hello World!");
-});
 app.use("/api/v1/user", userRouter);
 app.use("/api/v1/admin", adminRoutes)
-
-server.listen(port,() => {
-  console.log(`Example app listening at http://localhost:${port}`);
+// ✅ Start server
+const port = process.env.PORT || 8080;
+server.listen(port, () => {
+  console.log(`🚀 Server running at http://localhost:${port}`);
 });
-

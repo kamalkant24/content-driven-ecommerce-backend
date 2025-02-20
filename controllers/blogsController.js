@@ -1,25 +1,23 @@
-import createblogs from "../models/CreateblogsModels.js";
+import createBlogs from "../models/CreateblogsModels.js";
 
 // Create a new blog post
 export const createUserBlogs = async (req, res) => {
-  const { title, content, tags, image, vendor } = req.body;
+  const { title, content, tags, image } = req.body;
 
-  // Validate required fields
-  if (!title || !content || !vendor) {
-    return res.status(400).json({ message: "Title, content, and vendor are required." });
+  if (!title || !content) {
+    return res.status(400).json({ message: "Title and content are required." });
   }
 
   try {
-    const newBlog = new createblogs({
-      vendor: req.user._id,  // Ensure vendor is set to the logged-in vendor's ID
+    const newBlog = new createBlogs({
+      vendor: req.user._id,
       title,
       content,
-      image,
-      tags: tags || [],  // Default to an empty array if no tags are provided
+      image: image || [],
+      tags: tags || [],
       createdAt: new Date(),
     });
 
-    // Save the new blog post
     await newBlog.save();
 
     res.status(200).json({
@@ -28,38 +26,27 @@ export const createUserBlogs = async (req, res) => {
     });
   } catch (error) {
     console.error("Error creating blog:", error);
-    res.status(400).json({
-      error: error.message,
-    });
+    res.status(400).json({ error: error.message });
   }
 };
 
-// Get all blogs with pagination, search, and optional filters
+// Get all blogs with pagination and search
 export const getAllBlogs = async (req, res) => {
   const { page = 1, pageSize = 10, search, tags } = req.query;
 
   try {
     const filters = {};
-    
-    // Apply search filter on title (case-insensitive)
-    if (search) {
-      filters.title = { $regex: search, $options: 'i' };
-    }
 
-    // Apply tags filter if provided
-    if (tags) {
-      filters.tags = { $in: tags.split(',') };  // Match any of the provided tags
-    }
+    if (search) filters.title = { $regex: search, $options: 'i' };
+    if (tags) filters.tags = { $in: tags.split(',') };
 
-    // Pagination and fetching blog posts
-    const blogs = await createblogs.aggregate([
+    const blogs = await createBlogs.aggregate([
       { $match: filters },
       { $skip: (page - 1) * pageSize },
       { $limit: parseInt(pageSize) },
     ]);
 
-    // Get total count of blogs matching the filters
-    const totalBlogsCount = await createblogs.countDocuments(filters);
+    const totalBlogsCount = await createBlogs.countDocuments(filters);
 
     res.status(200).json({
       message: "Blogs fetched successfully",
@@ -68,20 +55,16 @@ export const getAllBlogs = async (req, res) => {
     });
   } catch (err) {
     console.error("Error fetching blogs:", err);
-    res.status(400).json({
-      error: err.message,
-    });
+    res.status(400).json({ error: err.message });
   }
 };
 
-// Get a single blog by ID
+// Get single blog with comments and likes
 export const getBlogById = async (req, res) => {
   try {
-    const blog = await createblogs.findById(req.params.id);
+    const blog = await createBlogs.findById(req.params.id).populate('comments.user', 'name');
 
-    if (!blog) {
-      return res.status(404).json({ message: "Blog not found" });
-    }
+    if (!blog) return res.status(404).json({ message: "Blog not found" });
 
     res.status(200).json({
       message: "Blog fetched successfully",
@@ -89,9 +72,7 @@ export const getBlogById = async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching blog by ID:", error);
-    res.status(400).json({
-      error: error.message,
-    });
+    res.status(400).json({ error: error.message });
   }
 };
 
@@ -100,18 +81,13 @@ export const updateBlog = async (req, res) => {
   const { title, content, tags, image } = req.body;
 
   try {
-    const existingBlog = await createblogs.findById(req.params.id);
-
-    if (!existingBlog) {
-      return res.status(404).json({ message: "Blog not found" });
-    }
-
-    // Update blog fields
-    const updatedBlog = await createblogs.findByIdAndUpdate(
+    const updatedBlog = await createBlogs.findByIdAndUpdate(
       req.params.id,
       { title, content, tags, image },
-      { new: true }  // Return the updated blog after saving
+      { new: true }
     );
+
+    if (!updatedBlog) return res.status(404).json({ message: "Blog not found" });
 
     res.status(200).json({
       message: "Blog updated successfully",
@@ -119,87 +95,79 @@ export const updateBlog = async (req, res) => {
     });
   } catch (error) {
     console.error("Error updating blog:", error);
-    res.status(400).json({
-      error: error.message,
-    });
+    res.status(400).json({ error: error.message });
   }
 };
 
 // Delete a blog post
 export const deleteBlog = async (req, res) => {
   try {
-    const deletedBlog = await createblogs.findByIdAndDelete(req.params.id);
+    const deletedBlog = await createBlogs.findByIdAndDelete(req.params.id);
 
-    if (!deletedBlog) {
-      return res.status(404).json({ message: "Blog not found" });
-    }
+    if (!deletedBlog) return res.status(404).json({ message: "Blog not found" });
 
-    res.status(200).json({
-      message: "Blog deleted successfully",
-    });
+    res.status(200).json({ message: "Blog deleted successfully" });
   } catch (error) {
     console.error("Error deleting blog:", error);
-    res.status(400).json({
-      error: error.message,
-    });
+    res.status(400).json({ error: error.message });
   }
 };
 
 // Like a blog post
 export const likeBlog = async (req, res) => {
   try {
-    const blog = await createblogs.findById(req.params.id);
+    const blog = await createBlogs.findById(req.params.id);
 
-    if (!blog) {
-      return res.status(404).json({ message: "Blog not found" });
-    }
+    if (!blog) return res.status(404).json({ message: "Blog not found" });
 
-    // Check if the user has already liked the blog
-    const hasLiked = blog.likes.includes(req.user._id);
-
-    if (hasLiked) {
+    if (blog.likes.includes(req.user._id)) {
       return res.status(400).json({ message: "You already liked this blog" });
     }
 
-    // Add the user to the likes array
     blog.likes.push(req.user._id);
-
     await blog.save();
 
-    res.status(200).json({
-      message: "Blog liked successfully",
-      data: blog,
-    });
+    res.status(200).json({ message: "Blog liked successfully", data: blog });
   } catch (error) {
     console.error("Error liking blog:", error);
-    res.status(400).json({
-      error: error.message,
-    });
+    res.status(400).json({ error: error.message });
   }
 };
 
 // Unlike a blog post
 export const unlikeBlog = async (req, res) => {
   try {
-    const blog = await createblogs.findById(req.params.id);
+    const blog = await createBlogs.findById(req.params.id);
 
-    if (!blog) {
-      return res.status(404).json({ message: "Blog not found" });
-    }
+    if (!blog) return res.status(404).json({ message: "Blog not found" });
 
-    // Remove the user from the likes array
     blog.likes = blog.likes.filter(userId => userId.toString() !== req.user._id.toString());
-
     await blog.save();
 
-    res.status(200).json({
-      message: "Blog unliked successfully",
-      data: blog,
-    });
+    res.status(200).json({ message: "Blog unliked successfully", data: blog });
   } catch (error) {
     console.error("Error unliking blog:", error);
-    res.status(400).json({
-      error: error.message,
-    });
+    res.status(400).json({ error: error.message });
+  }
+};
+
+// Add a comment to a blog post
+export const commentOnBlog = async (req, res) => {
+  const { comment } = req.body;
+
+  if (!comment) return res.status(400).json({ message: "Comment is required." });
+
+  try {
+    const blog = await createBlogs.findById(req.params.id);
+
+    if (!blog) return res.status(404).json({ message: "Blog not found" });
+
+    blog.comments.push({ user: req.user._id, comment });
+    await blog.save();
+
+    res.status(200).json({ message: "Comment added successfully", data: blog });
+  } catch (error) {
+    console.error("Error adding comment:", error);
+    res.status(400).json({ error: error.message });
   }
 };

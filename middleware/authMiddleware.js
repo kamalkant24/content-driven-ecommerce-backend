@@ -2,22 +2,38 @@ import jwt from "jsonwebtoken";
 
 // Verify JWT Token Middleware
 export const verifyToken = (req, res, next) => {
-  const authHeader = req.header("Authorization");
-  const token = authHeader && authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : authHeader;
+  console.log("Middleware Request Object:", req); // Debugging line
+  console.log("Middleware Request Headers:", req.headers); // Check headers
 
-  if (!token) {
-    return res.status(403).json({ message: "No token provided" });
+  if (!req.headers) {
+    return res.status(400).json({ message: "Headers missing in request" });
   }
+
+  const authHeader = req.headers["authorization"] || req.headers["Authorization"];
+  console.log("Authorization Header:", authHeader);
+
+  if (!authHeader) {
+    return res.status(403).json({ message: "Authorization header missing" });
+  }
+
+  if (!authHeader.startsWith("Bearer ")) {
+    return res.status(403).json({ message: "Invalid token format" });
+  }
+
+  const token = authHeader.split(" ")[1];
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    console.log("Decoded Token:", decoded); // Debugging line
-    req.user = decoded; // Attach decoded user to request
+    req.user = decoded;
     next();
   } catch (err) {
-    res.status(401).json({ message: "Unauthorized", error: err.message });
+    console.log("JWT Error:", err.message);
+    return res.status(401).json({ message: "Unauthorized", error: err.message });
   }
 };
+
+
+
 
 // Middleware to verify if user is a vendor
 export const isVendor = (req, res, next) => {
