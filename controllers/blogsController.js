@@ -2,10 +2,10 @@ import createBlogs from "../models/CreateblogsModels.js";
 
 // Create a new blog post
 export const createUserBlogs = async (req, res) => {
-  const { title, content, tags, image } = req.body;
+  const { title, content, tags, image, categories } = req.body;
 
-  if (!title || !content) {
-    return res.status(400).json({ message: "Title and content are required." });
+  if (!title || !content || !categories) {
+    return res.status(400).json({ message: "Title, content, and category are required." });
   }
 
   try {
@@ -14,6 +14,7 @@ export const createUserBlogs = async (req, res) => {
       title,
       content,
       image: image || [],
+      categories,
       tags: tags || [],
       createdAt: new Date(),
     });
@@ -30,19 +31,20 @@ export const createUserBlogs = async (req, res) => {
   }
 };
 
-// Get all blogs with pagination and search
+// Get all blogs with pagination, search, tags, and category filters
 export const getAllBlogs = async (req, res) => {
-  const { page = 1, pageSize = 10, search, tags } = req.query;
+  const { page = 1, pageSize = 10, search, tags, categories } = req.query;
 
   try {
     const filters = {};
 
     if (search) filters.title = { $regex: search, $options: 'i' };
     if (tags) filters.tags = { $in: tags.split(',') };
+    if (categories) filters.categories = categories;
 
     const blogs = await createBlogs.aggregate([
       { $match: filters },
-      { $skip: (page - 1) * pageSize },
+      { $skip: (page - 1) * parseInt(pageSize) },
       { $limit: parseInt(pageSize) },
     ]);
 
@@ -59,7 +61,7 @@ export const getAllBlogs = async (req, res) => {
   }
 };
 
-// Get single blog with comments and likes
+// Get a single blog with populated comments and likes
 export const getBlogById = async (req, res) => {
   try {
     const blog = await createBlogs.findById(req.params.id).populate('comments.user', 'name');
@@ -78,12 +80,12 @@ export const getBlogById = async (req, res) => {
 
 // Update a blog post
 export const updateBlog = async (req, res) => {
-  const { title, content, tags, image } = req.body;
+  const { title, content, tags, image, categories } = req.body;
 
   try {
     const updatedBlog = await createBlogs.findByIdAndUpdate(
       req.params.id,
-      { title, content, tags, image },
+      { title, content, tags, image, categories },
       { new: true }
     );
 

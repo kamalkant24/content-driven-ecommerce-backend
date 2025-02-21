@@ -1,6 +1,5 @@
-//Model maps data to database
 import mongoose from "mongoose";
-import mongoosePaginate from 'mongoose-paginate'
+import mongoosePaginate from 'mongoose-paginate';
 
 const Schema = mongoose.Schema;
 
@@ -10,6 +9,17 @@ const blogsSchema = new Schema({
   title: { type: String, required: true },
   content: { type: String, required: true },
   image: { type: [String] }, // Supports multiple images
+  categories: {
+    type: String,
+    enum: [
+      "Electronics",
+      "Accessories",
+      "Home & Living",
+      "Beauty & Health",
+      "Sports & Outdoors"
+    ],
+    required: true
+  },
   tags: { type: [String], default: [] }, 
   likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "UserRegister" }],
   comments: [
