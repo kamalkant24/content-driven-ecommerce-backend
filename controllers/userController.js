@@ -13,15 +13,12 @@ const jsonResponse = (status, code, message, data = null) => {
 // User Registration
 export const register = async (req, res) => {
   try {
-    const { name, email, password, confirmPassword, phone, address, org_Name, org_Size, description } = req.body;
+    const { name, email, password, phone, address, org_Name, org_Size, description } = req.body;
 
-    if (!name || !email || !password || !confirmPassword) {
+    if (!name || !email || !password) {
       return res.status(400).json(jsonResponse("error", 400, "All required fields must be filled"));
     }
 
-    if (password !== confirmPassword) {
-      return res.status(400).json(jsonResponse("error", 400, "Passwords do not match"));
-    }
 
     const existingUser = await UserRegister.findOne({ email });
     if (existingUser) {
