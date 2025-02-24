@@ -50,11 +50,10 @@ export const addReview = async (req, res) => {
       customer: decoded._id,
       rating,
       comment: sanitizedComment,
-      reviewStatus: "pending",
     });
 
     await newReview.save();
-    res.status(201).json({ message: "Review submitted successfully and is pending approval." });
+    res.status(201).json({ message: "Review submitted successfully." });
   } catch (error) {
     res.status(500).json({ errorMessage: error.message });
   }
@@ -66,13 +65,13 @@ export const getProductReviews = async (req, res) => {
     const { productId } = req.params;
     const { page = 1, limit = 10 } = req.query; // Pagination params
 
-    const reviews = await Review.find({ product: productId, reviewStatus: "approved" })
+    const reviews = await Review.find({ product: productId })
       .populate("customer", "name")
       .select("rating comment createdAt")
       .skip((page - 1) * limit)
       .limit(parseInt(limit));
 
-    const totalReviews = await Review.countDocuments({ product: productId, reviewStatus: "approved" });
+    const totalReviews = await Review.countDocuments({ product: productId });
 
     res.status(200).json({
       reviews,
@@ -106,10 +105,9 @@ export const editReview = async (req, res) => {
 
     review.rating = rating;
     review.comment = sanitizeHtml(comment);
-    review.reviewStatus = "pending"; // Reset status for admin moderation
     await review.save();
 
-    res.status(200).json({ message: "Review updated successfully and is pending approval." });
+    res.status(200).json({ message: "Review updated successfully." });
   } catch (error) {
     res.status(500).json({ errorMessage: error.message });
   }
@@ -132,25 +130,33 @@ export const deleteReview = async (req, res) => {
   }
 };
 
-// Admin Moderation with Rejection Reason
+// Vendor Moderation with Rejection Reason
 export const moderateReview = async (req, res) => {
   try {
     const { reviewId } = req.params;
     const { reviewStatus, rejectionReason = "" } = req.body;
+    const vendorId = req.user._id; // Assuming authentication middleware sets req.user
 
-    if (!["approved", "rejected"].includes(reviewStatus)) {
-      return res.status(400).json({ message: "Invalid status value." });
+    if (!reviewId || !["approved", "rejected"].includes(reviewStatus)) {
+      return res.status(400).json({ message: "Invalid review ID or status." });
     }
 
-    const review = await Review.findByIdAndUpdate(
-      reviewId,
-      { reviewStatus, comment: reviewStatus === "rejected" ? `${review.comment} (Reason: ${sanitizeHtml(rejectionReason)})` : review.comment },
-      { new: true }
-    );
+    // Find the review with product details
+    const review = await Review.findById(reviewId).populate("product");
+    if (!review) return res.status(404).json({ message: "Review not found." });
 
-    if (!review) {
-      return res.status(404).json({ message: "Review not found." });
+    // Verify vendor ownership of the product
+    const product = await userProducts.findById(review.product._id);
+    if (!product || String(product.vendor) !== String(vendorId)) {
+      return res.status(403).json({ message: "Unauthorized: You can only moderate reviews on your products." });
     }
+
+    // Update review status and optionally append rejection reason
+    review.reviewStatus = reviewStatus;
+    if (reviewStatus === "rejected" && rejectionReason) {
+      review.comment = `${review.comment} (Reason: ${sanitizeHtml(rejectionReason)})`;
+    }
+    await review.save();
 
     res.status(200).json({ message: `Review ${reviewStatus} successfully.` });
   } catch (error) {

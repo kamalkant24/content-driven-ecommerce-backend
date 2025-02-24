@@ -11,19 +11,18 @@ const checkoutSchema = new mongoose.Schema({
   noOfItems: { type: Number, required: true },
   totalPrice: { type: Number, required: true },
   shipping: {
-    // MongoDB will automatically generate an ObjectId for the `shipping` object.
     _id: { type: mongoose.Schema.Types.ObjectId, auto: true },
     label: { type: String, required: true },
     price: { type: Number, required: true },
   },
   offer: {
-    // MongoDB will automatically generate an ObjectId for the `offer` object.
     _id: { type: mongoose.Schema.Types.ObjectId, auto: true },
     label: { type: String, required: true },
     discount: { type: Number, required: true },
   },
   netPrice: { type: Number, required: true },
   stripeSessionId: { type: String, required: true },
+  stripeCustomerId: { type: String, default: null }, // 🔑 Added Stripe Customer ID field
   createdAt: { type: Date, default: Date.now },
 });
 

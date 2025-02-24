@@ -1,7 +1,7 @@
 import { Router } from "express";
 import express from "express";
 import { login, register, getAllUser, deleteUser, approveVendor, updateUser, getUserProfile, logOut, verifyApi, confirmationApi } from "../controllers/userController.js";
-import { verifyToken, isVendor, verifyCustomerRole }from "../middleware/authMiddleware.js";
+import { verifyToken, isVendor, verifyCustomerRole } from "../middleware/authMiddleware.js";
 import { download, getListFiles, upload } from "../controllers/file.Controller.js";
 import {
   createUserBlogs,
@@ -21,13 +21,16 @@ import uploadFile from "../models/upload.js"
 import { addToCart, getCarts, updateCart, removeFromCart } from "../controllers/cartController.js";
 import {
   getUserOrders, getOrderById,
-  updateOrderStatus, cancelOrder, deleteOrder,checkout,
+  updateOrderStatus, cancelOrder, deleteOrder, checkout,
   stripeWebhook,
 } from "../controllers/orderController.js";
 import {
   addReview, getProductReviews, editReview,
   deleteReview, moderateReview
 } from "../controllers/reviewController.js";
+import {
+  addToWishlist, getWishlist, removeFromWishlist
+} from "../controllers/wishlistController.js"; 
 const userRouter = Router();
 
 // Authentication Routes
@@ -106,19 +109,23 @@ userRouter.delete("/delete-order/:orderId", verifyToken, deleteOrder);
 userRouter.post("/checkout", verifyToken, checkout);
 
 // Add the Stripe Webhook route
-userRouter.post('/stripe-webhook', stripeWebhook); 
+userRouter.post('/stripe-webhook', stripeWebhook);
 // Review Routes
 userRouter.post("/add-review", verifyToken, addReview);                      // Add a review
 userRouter.get("/get-reviews/:productId", getProductReviews);               // Get reviews for a product
 userRouter.put("/edit-review/:reviewId", verifyToken, editReview);          // Edit a review
 userRouter.delete("/delete-review/:reviewId", verifyToken, deleteReview);   // Delete a review
-userRouter.put("/moderate-review/:reviewId", verifyToken, moderateReview);  // Admin: moderate reviews
+userRouter.put("/moderate-review/:reviewId", verifyToken, moderateReview);  // Vendors: moderate reviews
 // Global Search
 userRouter.get("/search-all", searchAll);
 
 // Chat
 userRouter.post("/user-chat", userChat);
 
+// ✅ Wishlist Routes (Customer Only)
+userRouter.post("/add-to-wishlist", verifyToken, verifyCustomerRole, addToWishlist); // Add product to wishlist
+userRouter.get("/wishlist", verifyToken, verifyCustomerRole, getWishlist);           // Get customer's wishlist
+userRouter.delete("/remove-from-wishlist/:productId", verifyToken, verifyCustomerRole, removeFromWishlist); // Remove product from wishlist
 
 
 

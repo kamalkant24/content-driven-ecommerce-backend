@@ -38,12 +38,28 @@ export const checkout = async (req, res) => {
       quantity: item.quantity,
     }));
 
+    let user = await userRegister.findById(req.user._id);
+    if (!user) return res.status(404).json({ message: "User not found." });
+
+    // 🔑 Stripe Customer Handling
+    let stripeCustomerId = user.stripeCustomerId;
+
+    if (!stripeCustomerId) {
+      const customer = await stripe.customers.create({
+        email: req.user.email,
+        name: `${user.firstName} ${user.lastName}`,
+      });
+      stripeCustomerId = customer.id;
+      user.stripeCustomerId = stripeCustomerId;
+      await user.save();
+    }
+
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       mode: "payment",
+      customer: stripeCustomerId, // ✅ Reuse customer for auto-filled payment info
       success_url: `${process.env.CLIENT_URL}/order-success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.CLIENT_URL}/order-cancelled`,
-      customer_email: req.user.email,
       line_items: lineItems,
       metadata: { userId: req.user._id },
     });
@@ -56,6 +72,7 @@ export const checkout = async (req, res) => {
       offer,
       netPrice,
       stripeSessionId: session.id,
+      stripeCustomerId, // 🔑 Save customer ID for future reference
       products: validProducts.map(p => ({ product: p.product._id, quantity: p.quantity })),
     }).save();
 
@@ -65,6 +82,7 @@ export const checkout = async (req, res) => {
     res.status(500).json({ errorMessage: error.message });
   }
 };
+
 export const stripeWebhook = async (req, res) => {
   const sig = req.headers['stripe-signature'];
 
