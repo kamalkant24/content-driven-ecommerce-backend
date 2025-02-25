@@ -85,6 +85,7 @@ io.on("connection", (socket) => {
 
   io.emit('active-users', Object.keys(activeUsers));
 });
+app.use("/assets", express.static("resource/static/assets"));
 app.use("/api/v1/user", userRouter);
 app.use("/api/v1/admin", adminRoutes)
 // ✅ Start server

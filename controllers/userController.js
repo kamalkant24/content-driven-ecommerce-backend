@@ -13,36 +13,23 @@ const jsonResponse = (status, code, message, data = null) => {
 // User Registration
 export const register = async (req, res) => {
   try {
-    const {
-      name,
-      email,
-      password: hashedPasswordFromClient,
-      phone,
-      address,
-      org_Name,
-      org_Size,
-      description,
-    } = req.body;
+    const { name, email, password, phone, address, org_Name, org_Size, description } = req.body;
 
-    if (!name || !email || !hashedPasswordFromClient) {
+    if (!name || !email || !password) {
       return res.status(400).json(jsonResponse("error", 400, "All required fields must be filled"));
     }
-
     const existingUser = await UserRegister.findOne({ email });
     if (existingUser) {
       return res.status(400).json(jsonResponse("error", 400, "Email already registered"));
     }
 
-    if (hashedPasswordFromClient.length < 50) {
-      return res.status(400).json(jsonResponse("error", 400, "Invalid hashed password format"));
-    }
-
+    const hashedPassword = await bcrypt.hash(password, 10);
     const uniqueString = randString();
 
     const user = await UserRegister.create({
       name,
       email,
-      password: hashedPasswordFromClient,
+      password: hashedPassword,
       phone,
       address,
       org_Name,
@@ -54,9 +41,7 @@ export const register = async (req, res) => {
     });
 
     sendEmail(email, uniqueString);
-    return res.status(200).json(
-      jsonResponse("success", 200, "Registered successfully. Please verify your email.", user)
-    );
+    return res.status(200).json(jsonResponse("success", 200, "Registered successfully. Please verify your email.", user));
   } catch (error) {
     return res.status(400).json(jsonResponse("error", 400, error.message));
   }
@@ -64,29 +49,19 @@ export const register = async (req, res) => {
 // User Login
 export const login = async (req, res) => {
   try {
-    const { email, password: hashedPasswordFromClient } = req.body;
+    const { email, password } = req.body;
 
-    if (!email || !hashedPasswordFromClient) {
+    if (!email || !password) {
       return res.status(400).json(jsonResponse("error", 400, "Email and password are required"));
     }
 
     const user = await UserRegister.findOne({ email });
-    if (!user) {
+    if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(400).json(jsonResponse("error", 400, "Invalid email or password"));
     }
 
-    const passwordsMatch = user.password === hashedPasswordFromClient;
-    if (!passwordsMatch) {
-      return res.status(400).json(jsonResponse("error", 400, "Invalid email or password"));
-    }
-
-    if (!user.isValid) {
-      return res.status(401).json(jsonResponse("error", 401, "Email not verified"));
-    }
-
-    if (user.role === "vendor" && !user.isApproved) {
-      return res.status(403).json(jsonResponse("error", 403, "Vendor account pending approval"));
-    }
+    if (!user.isValid) return res.status(401).json(jsonResponse("error", 401, "Email not verified"));
+    if (user.role === "vendor" && !user.isApproved) return res.status(403).json(jsonResponse("error", 403, "Vendor account pending approval"));
 
     const token = jsonwebtoken(user);
     return res.status(200).json(jsonResponse("success", 200, "Login successful", { user, token }));
@@ -257,23 +232,26 @@ export const getUserProfile = async (req, res) => {
       return res.status(404).json(jsonResponse("error", 404, "User not found"));
     }
 
-    // Add full URL for profile_img
+    const baseURL = "http://localhost:8080/assets";
+
+    // ✅ Add full URL for profile_img
     if (user.profile_img) {
-      user.profile_img = `http://localhost:8080/image/${user.profile_img}`;
+      user.profile_img = `${baseURL}/profile/${user.profile_img}`;
     }
 
     // ✅ Add full URL for vendor's banner
     if (user.role === "vendor" && user.banner) {
-      user.banner = `http://localhost:8080/image/${user.banner}`;
+      user.banner = `${baseURL}/banner/${user.banner}`;
     }
 
-    return res
-      .status(200)
-      .json(jsonResponse("success", 200, "User profile retrieved successfully", user));
+    return res.status(200).json(
+      jsonResponse("success", 200, "User profile retrieved successfully", user)
+    );
   } catch (err) {
     return res.status(400).json(jsonResponse("error", 400, err.message));
   }
 };
+
 
 
 // Log Out Functionality (User Session End)
