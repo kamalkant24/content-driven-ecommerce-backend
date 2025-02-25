@@ -16,6 +16,7 @@ import {
 import { createUserProducts, getAllProducts, getProductById, updateProduct, deleteProduct, getVendorProducts } from "../controllers/productsController.js";
 import { searchAll } from "../controllers/globalSearchController.js";
 import { userChat } from "../controllers/chatController.js";
+import { uploadLogoAndBanner } from "../middleware/singleMulter.js";
 import uploadImage from "../middleware/singleMulter.js";
 import uploadFile from "../models/upload.js"
 import { addToCart, getCarts, updateCart, removeFromCart } from "../controllers/cartController.js";
@@ -56,10 +57,7 @@ userRouter.get("/user-profile", verifyToken, getUserProfile);
 userRouter.post(
   "/confirmation",
   verifyToken,
-  uploadImage.fields([
-    { name: "logo", maxCount: 1 }, // Required for both customers and vendors
-    { name: "banner", maxCount: 1 }, // Required only for vendors
-  ]),
+  uploadLogoAndBanner,
   confirmationApi
 );
 userRouter.post("/approve-vendor", verifyToken, approveVendor);
