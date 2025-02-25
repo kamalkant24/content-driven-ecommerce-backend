@@ -13,25 +13,36 @@ const jsonResponse = (status, code, message, data = null) => {
 // User Registration
 export const register = async (req, res) => {
   try {
-    const { name, email, password, phone, address, org_Name, org_Size, description } = req.body;
+    const {
+      name,
+      email,
+      password: hashedPasswordFromClient,
+      phone,
+      address,
+      org_Name,
+      org_Size,
+      description,
+    } = req.body;
 
-    if (!name || !email || !password) {
+    if (!name || !email || !hashedPasswordFromClient) {
       return res.status(400).json(jsonResponse("error", 400, "All required fields must be filled"));
     }
-
 
     const existingUser = await UserRegister.findOne({ email });
     if (existingUser) {
       return res.status(400).json(jsonResponse("error", 400, "Email already registered"));
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    if (hashedPasswordFromClient.length < 50) {
+      return res.status(400).json(jsonResponse("error", 400, "Invalid hashed password format"));
+    }
+
     const uniqueString = randString();
 
     const user = await UserRegister.create({
       name,
       email,
-      password: hashedPassword,
+      password: hashedPasswordFromClient,
       phone,
       address,
       org_Name,
@@ -43,7 +54,9 @@ export const register = async (req, res) => {
     });
 
     sendEmail(email, uniqueString);
-    return res.status(200).json(jsonResponse("success", 200, "Registered successfully. Please verify your email.", user));
+    return res.status(200).json(
+      jsonResponse("success", 200, "Registered successfully. Please verify your email.", user)
+    );
   } catch (error) {
     return res.status(400).json(jsonResponse("error", 400, error.message));
   }
@@ -51,19 +64,29 @@ export const register = async (req, res) => {
 // User Login
 export const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password: hashedPasswordFromClient } = req.body;
 
-    if (!email || !password) {
+    if (!email || !hashedPasswordFromClient) {
       return res.status(400).json(jsonResponse("error", 400, "Email and password are required"));
     }
 
     const user = await UserRegister.findOne({ email });
-    if (!user || !(await bcrypt.compare(password, user.password))) {
+    if (!user) {
       return res.status(400).json(jsonResponse("error", 400, "Invalid email or password"));
     }
 
-    if (!user.isValid) return res.status(401).json(jsonResponse("error", 401, "Email not verified"));
-    if (user.role === "vendor" && !user.isApproved) return res.status(403).json(jsonResponse("error", 403, "Vendor account pending approval"));
+    const passwordsMatch = user.password === hashedPasswordFromClient;
+    if (!passwordsMatch) {
+      return res.status(400).json(jsonResponse("error", 400, "Invalid email or password"));
+    }
+
+    if (!user.isValid) {
+      return res.status(401).json(jsonResponse("error", 401, "Email not verified"));
+    }
+
+    if (user.role === "vendor" && !user.isApproved) {
+      return res.status(403).json(jsonResponse("error", 403, "Vendor account pending approval"));
+    }
 
     const token = jsonwebtoken(user);
     return res.status(200).json(jsonResponse("success", 200, "Login successful", { user, token }));
