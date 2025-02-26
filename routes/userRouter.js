@@ -1,6 +1,7 @@
 import { Router } from "express";
 import express from "express";
-import { login, register, getAllUser, deleteUser, approveVendor, updateUser, getUserProfile, logOut, verifyApi, confirmationApi } from "../controllers/userController.js";
+import { login, register, getAllUser,   updateUser, getUserProfile, logOut, verifyApi,getAllVendors, confirmationApi } from "../controllers/userController.js";
+import { approveVendor, deleteUser } from "../controllers/adminController.js";
 import { verifyToken, isVendor, verifyCustomerRole } from "../middleware/authMiddleware.js";
 import { download, getListFiles, upload } from "../controllers/file.Controller.js";
 import {
@@ -52,7 +53,7 @@ userRouter.post(
   ]),
   updateUser
 );
-
+userRouter.get("/getAllvendor",verifyToken, verifyCustomerRole, getAllVendors);
 userRouter.get("/user-profile", verifyToken, getUserProfile);
 userRouter.post(
   "/confirmation",

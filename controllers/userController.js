@@ -116,57 +116,28 @@ export const getAllUser = async (req, res) => {
     );
   }
 };
-
-
-// Delete User (Admin Only)
-export const deleteUser = async (req, res) => {
-  const { email } = req.body;
-  const token = req.header("Authorization");
-
-  // Check if token is provided
-  if (!token) {
-    return res.status(401).json(
-      jsonResponse("error", 401, "Authorization token is required")
-    );
+// Get All Vendors (Name & ID)
+export const getAllVendors = async (req, res) => {
+  if (!req.user || req.user.role !== "customer") {
+    return res.status(403).json({ message: "Access denied. Only customers can perform this action." });
   }
 
   try {
-    // Decode the token to get user info
-    const decoded = jwtDecode(token);
-
-    // Check if the user is an admin
-    if (decoded.role !== "admin") {
-      return res.status(403).json(
-        jsonResponse("error", 403, "Only admin can delete users")
-      );
+    const vendors = await UserRegister.find({ role: "vendor" }).select("_id name");
+    if (!vendors.length) {
+      return res.status(404).json({ message: "No vendors found" });
     }
 
-    // Check if the email is provided
-    if (!email) {
-      return res.status(400).json(
-        jsonResponse("error", 400, "Email is required to delete a user")
-      );
-    }
-
-    const result = await UserRegister.deleteOne({ email });
-
-    // Check if the user was found and deleted
-    if (result.deletedCount === 0) {
-      return res.status(404).json(
-        jsonResponse("error", 404, "User with this email does not exist")
-      );
-    }
-
-    return res.status(200).json(
-      jsonResponse("success", 200, "User deleted successfully", result)
-    );
-
-  } catch (err) {
-    return res.status(400).json(
-      jsonResponse("error", 400, err.message)
-    );
+    res.status(200).json({
+      message: "Vendors fetched successfully",
+      data: vendors.map((vendor) => ({ id: vendor._id, name: vendor.name })),
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Error fetching vendors", error: error.message });
   }
 };
+
+
 
 export const updateUser = async (req, res) => {
   console.log("Request Body:", req.body);   // ✅ Check form fields
@@ -284,23 +255,6 @@ export const verifyApi = async (req, res) => {
   }
 };
 
-// Admin Approval for Vendor Accounts
-export const approveVendor = async (req, res) => {
-  const { email } = req.body;
-
-  try {
-    const user = await UserRegister.findOne({ email });
-    if (!user || user.role !== 'vendor') {
-      return res.status(400).json({ error: "Vendor not found" });
-    }
-
-    user.isApproved = true;
-    await user.save();
-    res.status(200).json({ message: "Vendor approved successfully" });
-  } catch (err) {
-    res.status(500).json({ error: "Error approving vendor" });
-  }
-};
 
 // Confirmation API (Assign Role Here with Logo and Banner Upload)
 export const confirmationApi = async (req, res) => {
@@ -311,7 +265,7 @@ export const confirmationApi = async (req, res) => {
     const token = req.header("Authorization");
     const decoded = jwtDecode(token);
 
-    const { org_Name, industry, org_Size, description, role } = req.body;
+    const { org_Name, industry, org_Size, description, role, phone, address} = req.body;
 
     if (!["vendor", "customer"].includes(role)) {
       return res.status(400).json({ error: "Invalid role specified" });
@@ -324,6 +278,8 @@ export const confirmationApi = async (req, res) => {
       org_Size,
       description,
       role,
+      phone,
+      address,
       isApproved: role === "customer", // Customers are approved by default
     };
 
@@ -360,3 +316,87 @@ export const confirmationApi = async (req, res) => {
 
 
 
+// export const register = async (req, res) => {
+//   try {
+//     const {
+//       name,
+//       email,
+//       password: hashedPasswordFromClient,
+//       phone,
+//       address,
+//       org_Name,
+//       org_Size,
+//       description,
+//     } = req.body;
+
+//     if (!name || !email || !hashedPasswordFromClient) {
+//       return res.status(400).json(jsonResponse("error", 400, "All required fields must be filled"));
+//     }
+
+//     const existingUser = await UserRegister.findOne({ email });
+//     if (existingUser) {
+//       return res.status(400).json(jsonResponse("error", 400, "Email already registered"));
+//     }
+
+//     if (hashedPasswordFromClient.length < 50) {
+//       return res.status(400).json(jsonResponse("error", 400, "Invalid hashed password format"));
+//     }
+
+//     const uniqueString = randString();
+
+//     const user = await UserRegister.create({
+//       name,
+//       email,
+//       password: hashedPasswordFromClient,
+//       phone,
+//       address,
+//       org_Name,
+//       org_Size,
+//       description,
+//       isValid: false,
+//       isApproved: false,
+//       uniqueString,
+//     });
+
+//     sendEmail(email, uniqueString);
+//     return res.status(200).json(
+//       jsonResponse("success", 200, "Registered successfully. Please verify your email.", user)
+//     );
+//   } catch (error) {
+//     return res.status(400).json(jsonResponse("error", 400, error.message));
+//   }
+// };
+
+// // User Login
+// export const login = async (req, res) => {
+//   try {
+//     const { email, password: hashedPasswordFromClient } = req.body;
+
+//     if (!email || !hashedPasswordFromClient) {
+//       return res.status(400).json(jsonResponse("error", 400, "Email and password are required"));
+//     }
+
+//     const user = await UserRegister.findOne({ email });
+//     if (!user) {
+//       return res.status(400).json(jsonResponse("error", 400, "Invalid email or password"));
+//     }
+
+//     const passwordsMatch = user.password === hashedPasswordFromClient;
+//     if (!passwordsMatch) {
+//       return res.status(400).json(jsonResponse("error", 400, "Invalid email or password"));
+//     }
+
+//     if (!user.isValid) {
+//       return res.status(401).json(jsonResponse("error", 401, "Email not verified"));
+//     }
+
+//     if (user.role === "vendor" && !user.isApproved) {
+//       return res.status(403).json(jsonResponse("error", 403, "Vendor account pending approval"));
+//     }
+
+//     const token = jsonwebtoken(user);
+//     return res.status(200).json(jsonResponse("success", 200, "Login successful", { user, token }));
+//   } catch (error) {
+//     return res.status(500).json(jsonResponse("error", 500, "Login failed"));
+//   }
+// };
