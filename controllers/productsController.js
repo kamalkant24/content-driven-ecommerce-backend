@@ -58,36 +58,44 @@ export const createUserProducts = [isVendor, async (req, res) => {
 // Update Product (Vendor Only)
 
 export const updateProduct = [
- // ✅ Multer Middleware
+  // ✅ Multer Middleware
   async (req, res) => {
     const { title, price, description, category, quantity, discount, variants, imagesToDelete } = req.body;
 
     try {
       const existingProduct = await userProducts.findById(req.params.id);
-      if (!existingProduct) return res.status(404).json({ message: "Product not found" });
+      if (!existingProduct) {
+        return res.status(404).json({ message: "Product not found" });
+      }
 
       let updatedImages = [...existingProduct.images];
 
-      // 🗑️ **Delete Multiple Old Images**
+      // 🗑️ **Delete Images (Single or Multiple)**
       if (imagesToDelete) {
-        const imagesArray = imagesToDelete.split(",").map((img) => img.trim()); // Convert comma-separated to array
+        const imagesArray = imagesToDelete.split(",").map((img) => img.trim());
+
         imagesArray.forEach((img) => {
           const imagePath = path.join("resource", "static", "assets", "products", img);
+
           if (fs.existsSync(imagePath)) {
-            fs.unlinkSync(imagePath);
+            fs.unlinkSync(imagePath); // Delete from filesystem
+            updatedImages = updatedImages.filter((image) => image !== img); // Remove from images array
             console.log(`🗑️ Deleted image: ${img}`);
-            updatedImages = updatedImages.filter((image) => image !== img);
           } else {
-            console.warn(`⚠️ File not found: ${img}`);
+            console.warn(`⚠️ Image not found: ${img}`);
           }
         });
       }
 
-      // 📤 **Add New Images**
+      // 📤 **Add New Images (from `image` field)**  
       if (req.files && req.files.length > 0) {
-        const newImages = req.files.map((file) => file.filename);
-        updatedImages = [...updatedImages, ...newImages];
-        console.log(`✅ New images added: ${newImages}`);
+        const newImages = req.files.map((file) => file.filename); // For multiple images
+        updatedImages.push(...newImages);
+        console.log(`✅ Added images: ${newImages}`);
+      } else if (req.file) {
+        // If single file upload is used
+        updatedImages.push(req.file.filename);
+        console.log(`✅ Added single image: ${req.file.filename}`);
       }
 
       const updatedData = {
@@ -103,13 +111,15 @@ export const updateProduct = [
       };
 
       const updatedProduct = await userProducts.findByIdAndUpdate(req.params.id, updatedData, { new: true });
+
       res.status(200).json({ message: "✅ Product updated successfully", data: updatedProduct });
     } catch (error) {
       console.error("❌ Error updating the product:", error);
       res.status(500).json({ message: "Error updating the product", error: error.message });
     }
-  }
+  },
 ];
+
 
 
 // Delete Product (Vendor Only)
