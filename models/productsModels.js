@@ -5,10 +5,10 @@ const Schema = mongoose.Schema;
 // Predefined Product Categories
 const ProductCategory = [
   "Electronics",
-  "Accessories",
+  "Clothing & Accessories",
   "Home & Living",
   "Beauty & Health",
-  "Sports & Outdoors",
+  "Sports & Outdoors"
 ];
 
 // Variant Schema
