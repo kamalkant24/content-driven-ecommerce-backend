@@ -139,14 +139,14 @@ export const getAllProducts = async (req, res) => {
     if (category) filters.category = category;
     if (vendor) filters.vendor = vendor;
     if (minPrice || maxPrice) {
-      filters.price = {};
-      if (minPrice) filters.price.$gte = Number(minPrice);
-      if (maxPrice) filters.price.$lte = Number(maxPrice);
+      filters.discount_price = {};
+      if (minPrice) filters.discount_price.$gte = Number(minPrice);
+      if (maxPrice) filters.discount_price.$lte = Number(maxPrice);
     }
 
     const sortOrder = {};
-    if (sortByPrice === 'low-to-high') sortOrder.price = 1;
-    else if (sortByPrice === 'high-to-low') sortOrder.price = -1;
+    if (sortByPrice === 'low-to-high') sortOrder.discount_price = 1;
+    else if (sortByPrice === 'high-to-low') sortOrder.discount_price = -1;
 
     const baseURL = "http://localhost:8080/assets/products";
 
@@ -155,13 +155,10 @@ export const getAllProducts = async (req, res) => {
       .skip((page - 1) * pageSize)
       .limit(parseInt(pageSize));
 
-    // ✅ Convert image filenames to full URLs
-    const productsWithImageURLs = products.map(product => {
-      return {
-        ...product.toObject(),
-        images: product.images?.map(image => `${baseURL}/${image}`) || [],
-      };
-    });
+    const productsWithImageURLs = products.map(product => ({
+      ...product.toObject(),
+      images: product.images?.map(image => `${baseURL}/${image}`) || [],
+    }));
 
     const totalCount = await userProducts.countDocuments(filters);
 
@@ -176,16 +173,33 @@ export const getAllProducts = async (req, res) => {
   }
 };
 
-
-// Get Product by ID
 export const getProductById = async (req, res) => {
+  const { page = 1, pageSize = 10, search, category, vendor, minPrice, maxPrice, sortByPrice } = req.query;
+
   try {
+    const filters = { _id: req.params.id };
+    if (search) filters.title = { $regex: search, $options: "i" };
+    if (category) filters.category = category;
+    if (vendor) filters.vendor = vendor;
+    if (minPrice || maxPrice) {
+      filters.discount_price = {};
+      if (minPrice) filters.discount_price.$gte = Number(minPrice);
+      if (maxPrice) filters.discount_price.$lte = Number(maxPrice);
+    }
+
+    const sortOrder = {};
+    if (sortByPrice === 'low-to-high') sortOrder.discount_price = 1;
+    else if (sortByPrice === 'high-to-low') sortOrder.discount_price = -1;
+
     const baseURL = "http://localhost:8080/assets/products";
-    const product = await userProducts.findById(req.params.id);
+
+    const product = await userProducts.findOne(filters)
+      .sort(sortOrder)
+      .skip((page - 1) * pageSize)
+      .limit(parseInt(pageSize));
 
     if (!product) return res.status(404).json({ message: "Product not found" });
 
-    // ✅ Convert image filenames to full URLs
     const productWithImageURLs = {
       ...product.toObject(),
       images: product.images?.map(image => `${baseURL}/${image}`) || [],
@@ -200,6 +214,7 @@ export const getProductById = async (req, res) => {
     res.status(500).json({ message: "Error fetching the product", error: error.message });
   }
 };
+
 
 
 // Get all products for the authenticated vendor
