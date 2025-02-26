@@ -39,18 +39,35 @@ export const addToCart = async (req, res) => {
 // Get the user's cart and populate product details
 export const getCarts = async (req, res) => {
   try {
-    const cart = await userCart.findOne({ customer: req.user._id }).populate("products.product");
+    const baseURL = "http://localhost:8080/assets/products";
+
+    const cart = await userCart
+      .findOne({ customer: req.user._id })
+      .populate("products.product");
 
     if (!cart) {
       return res.status(404).json({ message: "Cart not found" });
     }
 
+    // Map through cart products to add full image URLs
+    const cartWithImageURLs = {
+      ...cart.toObject(),
+      products: cart.products.map((item) => ({
+        ...item.toObject(),
+        product: {
+          ...item.product.toObject(),
+          images: item.product.images?.map((image) => `${baseURL}/${image}`) || [],
+        },
+      })),
+    };
+
     return res.status(200).json({
       message: "Cart retrieved successfully",
-      cart
+      cart: cartWithImageURLs,
     });
 
   } catch (error) {
+    console.error("Error fetching cart:", error.message);
     res.status(500).json({ errorMessage: error.message });
   }
 };
