@@ -2,7 +2,7 @@ import UserRegister from "../models/newUserRegisterModel.js";
 import bcrypt from "bcrypt";
 import jsonwebtoken from "../jwt/jwt.js";
 import { jwtDecode } from "jwt-decode";
-import sendEmail from "../utils/sendEmail.js";
+import {sendEmail} from "../utils/sendEmail.js";
 import randString from "../utils/randString.js";
 
 // Standard JSON Response Format

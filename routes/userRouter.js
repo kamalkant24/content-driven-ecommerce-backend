@@ -94,7 +94,7 @@ userRouter.get("/get-vendor-products", verifyToken, isVendor, getVendorProducts)
 userRouter.post("/add-to-cart", verifyToken, verifyCustomerRole, addToCart);
 userRouter.post("/update-cart", verifyToken, verifyCustomerRole, updateCart);
 userRouter.get("/carts", verifyToken, verifyCustomerRole, getCarts);
-userRouter.delete("/remove-from-cart", verifyToken, verifyCustomerRole, removeFromCart);
+userRouter.delete("/remove-from-cart/:id", verifyToken, verifyCustomerRole, removeFromCart);
 
 // Order Routes
 // userRouter.post("/create-order", verifyToken, createOrder);

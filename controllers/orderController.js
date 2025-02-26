@@ -7,6 +7,7 @@ import nodemailer from "nodemailer";
 import dotenv from "dotenv";
 import { verifyToken } from "../middleware/authMiddleware.js";
 import userRegister from "../models/newUserRegisterModel.js"
+import {sendOrderConfirmationEmail} from "../utils/sendEmail.js";
 dotenv.config();
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
@@ -347,21 +348,21 @@ export const deleteOrder = async (req, res) => {
 };
 
 // ✅ Email Notification Function
-const sendOrderConfirmationEmail = async (email, orderId) => {
-  const transporter = nodemailer.createTransport({
-    service: "Gmail",
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-  });
+// const sendOrderConfirmationEmail = async (email, orderId) => {
+//   const transporter = nodemailer.createTransport({
+//     service: "Gmail",
+//     auth: {
+//       user: process.env.EMAIL_USER,
+//       pass: process.env.EMAIL_PASS,
+//     },
+//   });
 
-  const mailOptions = {
-    from: process.env.EMAIL_USER,
-    to: email,
-    subject: "Order Confirmation",
-    text: `Your order has been placed successfully. Your order ID is ${orderId}.`,
-  };
+//   const mailOptions = {
+//     from: process.env.EMAIL_USER,
+//     to: email,
+//     subject: "Order Confirmation",
+//     text: `Your order has been placed successfully. Your order ID is ${orderId}.`,
+//   };
 
-  await transporter.sendMail(mailOptions);
-};
+//   await transporter.sendMail(mailOptions);
+// };
