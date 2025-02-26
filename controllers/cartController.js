@@ -108,15 +108,22 @@ export const updateCart = async (req, res) => {
 // Remove a product from the cart
 export const removeFromCart = async (req, res) => {
   try {
-    const { productId } = req.body;
+    const { id: productId } = req.params;  // Updated to match the route
+
+    if (!productId) {
+      return res.status(400).json({ message: "Product ID is required in the URL parameters." });
+    }
 
     const cart = await userCart.findOne({ customer: req.user._id });
     if (!cart) {
       return res.status(404).json({ message: "Cart not found" });
     }
 
+    console.log("Cart Products Array:", cart.products);  
+    console.log("Requested Product ID:", productId);  
+
     const productIndex = cart.products.findIndex(
-      (item) => String(item.product) === String(productId)
+      (item) => item.product.toString() === productId.toString()
     );
 
     if (productIndex === -1) {
@@ -130,10 +137,14 @@ export const removeFromCart = async (req, res) => {
 
     return res.status(200).json({
       message: "Product removed from cart",
-      cart: updatedCart
+      cart: updatedCart,
     });
 
   } catch (error) {
+    console.error("Error:", error);  
     res.status(500).json({ errorMessage: error.message });
   }
 };
+
+
+
