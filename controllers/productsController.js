@@ -174,29 +174,10 @@ export const getAllProducts = async (req, res) => {
 };
 
 export const getProductById = async (req, res) => {
-  const { page = 1, pageSize = 10, search, category, vendor, minPrice, maxPrice, sortByPrice } = req.query;
-
   try {
-    const filters = { _id: req.params.id };
-    if (search) filters.title = { $regex: search, $options: "i" };
-    if (category) filters.category = category;
-    if (vendor) filters.vendor = vendor;
-    if (minPrice || maxPrice) {
-      filters.discount_price = {};
-      if (minPrice) filters.discount_price.$gte = Number(minPrice);
-      if (maxPrice) filters.discount_price.$lte = Number(maxPrice);
-    }
-
-    const sortOrder = {};
-    if (sortByPrice === 'low-to-high') sortOrder.discount_price = 1;
-    else if (sortByPrice === 'high-to-low') sortOrder.discount_price = -1;
-
     const baseURL = "http://localhost:8080/assets/products";
 
-    const product = await userProducts.findOne(filters)
-      .sort(sortOrder)
-      .skip((page - 1) * pageSize)
-      .limit(parseInt(pageSize));
+    const product = await userProducts.findOne({ _id: req.params.id });
 
     if (!product) return res.status(404).json({ message: "Product not found" });
 
