@@ -31,6 +31,7 @@ const productSchema = new Schema(
     discount: { type: Number, default: 0, min: 0, max: 100 },
     variants: [variantSchema],
     reviews: [{ type: mongoose.Schema.Types.ObjectId, ref: "Review" }],
+    isApproved: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

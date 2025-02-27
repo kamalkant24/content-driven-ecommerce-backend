@@ -15,7 +15,8 @@ import {
   approveReview, 
   deleteReview, 
   approveComment, 
-  deleteComment 
+  deleteComment, 
+  getPendingVendors
 } from "../controllers/adminController.js";
 import { verifyToken } from "../middleware/authMiddleware.js";
 import  isAdmin from "../middleware/adminAuth.js"
@@ -27,6 +28,7 @@ adminRouter.post("/register",  registerAdmin);
 adminRouter.post("/login", loginAdmin); 
 
 // ✅ Vendor Management
+adminRouter.get("/getPendingVendor", verifyToken, isAdmin, getPendingVendors)
 adminRouter.post("/approve-vendor", verifyToken, isAdmin, approveVendor); 
 adminRouter.delete("/reject-vendor", verifyToken, isAdmin, rejectVendor); 
 

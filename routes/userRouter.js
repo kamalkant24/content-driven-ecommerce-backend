@@ -1,7 +1,7 @@
 import { Router } from "express";
 import express from "express";
 import { login, register, getAllUser,   updateUser, getUserProfile, logOut, verifyApi,getAllVendors, confirmationApi } from "../controllers/userController.js";
-import { approveVendor, deleteUser } from "../controllers/adminController.js";
+// import { approveVendor, deleteUser } from "../controllers/adminController.js";
 import { verifyToken, isVendor, verifyCustomerRole } from "../middleware/authMiddleware.js";
 import { download, getListFiles, upload } from "../controllers/file.Controller.js";
 import {
@@ -43,7 +43,7 @@ userRouter.get("/verify/:uniqueString", verifyApi);
 
 // User Management (Admin & User)
 userRouter.get("/all", verifyToken, getAllUser);
-userRouter.post("/delete", verifyToken, deleteUser);
+// userRouter.post("/delete", verifyToken, deleteUser);
 userRouter.post(
   "/update",
   verifyToken,
@@ -61,7 +61,7 @@ userRouter.post(
   uploadLogoAndBanner,
   confirmationApi
 );
-userRouter.post("/approve-vendor", verifyToken, approveVendor);
+// userRouter.post("/approve-vendor", verifyToken, approveVendor);
 
 // File Management
 userRouter.post('/file-upload', verifyToken, uploadFile, upload)

@@ -3,11 +3,9 @@ import jsonwebtoken from "../jwt/jwt.js";
 import AdminRegister from "../models/adminModel.js";
 import UserRegister from "../models/newUserRegisterModel.js";
 import Reviews from "../models/reviewModel.js";
-
-
 import userProducts from "../models/productsModels.js";
 import Orders from "../models/orderModel.js";
-
+import { sendApprovalEmail, sendRejectionEmail, sendProductApprovalEmail,sendProductRejectionEmail,sendReviewApprovalEmail, sendReviewRejectionEmail, sendCommentApprovalEmail,sendCommentRejectionEmail  } from "../utils/sendEmail.js";
 
 /**
  * ✅ Register Admin
@@ -52,7 +50,14 @@ export const loginAdmin = async (req, res) => {
     res.status(500).json({ error: "Internal Server Error", details: error.message });
   }
 };
-
+export const getPendingVendors = async (req, res) => {
+  try {
+    const pendingVendors = await UserRegister.find({ role: "vendor", isApproved: false }).select("-password");
+    res.status(200).json({ message: "Pending vendors fetched successfully", data: pendingVendors });
+  } catch (error) {
+    res.status(500).json({ error: "Error fetching pending vendors", details: error.message });
+  }
+};
 /**
  * ✅ Approve Vendor
  */
@@ -64,8 +69,13 @@ export const approveVendor = async (req, res) => {
 
     user.isApproved = true;
     await user.save();
-    res.status(200).json({ message: "Vendor approved successfully" });
+
+    // Send approval email
+    await sendApprovalEmail(email);
+
+    res.status(200).json({ message: "Vendor approved successfully and email sent" });
   } catch (err) {
+    console.error("Error approving vendor:", err);
     res.status(500).json({ error: "Error approving vendor" });
   }
 };
@@ -77,11 +87,13 @@ export const rejectVendor = async (req, res) => {
   try {
     const { email } = req.body;
     const user = await UserRegister.findOneAndDelete({ email, role: "vendor" });
+
     if (!user) return res.status(404).json({ error: "Vendor not found or already deleted" });
 
-    res.status(200).json({ message: "Vendor rejected and deleted successfully" });
+    await sendRejectionEmail(email); // 📧 Notify vendor
+    res.status(200).json({ message: "Vendor rejected and email sent" });
   } catch (err) {
-    res.status(500).json({ error: "Error rejecting vendor" });
+    res.status(500).json({ error: "Error rejecting vendor", details: err.message });
   }
 };
 
@@ -130,26 +142,49 @@ export const getAllProducts = async (req, res) => {
 
 export const approveProduct = async (req, res) => {
   try {
-    const product = await userProducts.findByIdAndUpdate(req.params.id, { isApproved: true }, { new: true });
+    // Populate vendor email to ensure it's available
+    const product = await userProducts.findByIdAndUpdate(
+      req.params.id,
+      { isApproved: true },
+      { new: true }
+    ).populate("vendor", "email");
+
     if (!product) return res.status(404).json({ error: "Product not found" });
 
-    res.status(200).json({ message: "Product approved successfully", data: product });
+    const vendorEmail = product.vendor?.email;
+    if (!vendorEmail) {
+      console.error(`❌ No email found for vendor of product: ${product.title}`);
+      return res.status(400).json({ error: "Vendor email not found" });
+    }
+
+    await sendProductApprovalEmail(vendorEmail, product.title);
+    res.status(200).json({ message: "Product approved and email sent", data: product });
   } catch (err) {
-    res.status(500).json({ error: "Error approving product" });
+    res.status(500).json({ error: "Error approving product", details: err.message });
   }
 };
 
+/**
+ * ✅ Reject Product (With Email)
+ */
 export const rejectProduct = async (req, res) => {
   try {
-    const product = await userProducts.findByIdAndDelete(req.params.id);
+    const product = await userProducts.findById(req.params.id).populate("vendor", "email");
     if (!product) return res.status(404).json({ error: "Product not found" });
 
-    res.status(200).json({ message: "Product rejected and deleted successfully" });
+    const vendorEmail = product.vendor?.email;
+    if (!vendorEmail) {
+      console.error(`❌ No email found for vendor of product: ${product.title}`);
+      return res.status(400).json({ error: "Vendor email not found" });
+    }
+
+    await userProducts.findByIdAndDelete(req.params.id); // Ensure email is fetched before deleting
+    await sendProductRejectionEmail(vendorEmail, product.title);
+    res.status(200).json({ message: "Product rejected and email sent" });
   } catch (err) {
-    res.status(500).json({ error: "Error rejecting product" });
+    res.status(500).json({ error: "Error rejecting product", details: err.message });
   }
 };
-
 /**
  * ✅ Monitor Orders
  */
@@ -184,23 +219,30 @@ export const approveReview = async (req, res) => {
     const review = await Reviews.findByIdAndUpdate(req.params.id, { isApproved: true }, { new: true });
     if (!review) return res.status(404).json({ error: "Review not found" });
 
+    // Send approval email
+    await sendReviewApprovalEmail(review.userEmail, review.content);
+
     res.status(200).json({ message: "Review approved successfully", data: review });
   } catch (err) {
     res.status(500).json({ error: "Error approving review" });
   }
 };
 
+// ❌ Delete (Reject) Review Function (with email notification)
 export const deleteReview = async (req, res) => {
   try {
     const review = await Reviews.findByIdAndDelete(req.params.id);
     if (!review) return res.status(404).json({ error: "Review not found" });
+
+    // Send rejection email
+    await sendReviewRejectionEmail(review.userEmail, review.content, "Your review did not meet our guidelines.");
 
     res.status(200).json({ message: "Review deleted successfully" });
   } catch (err) {
     res.status(500).json({ error: "Error deleting review" });
   }
 };
-
+// ✅ Approve Comment Function (with email notification)
 export const approveComment = async (req, res) => {
   try {
     const { reviewId, commentId } = req.params;
@@ -213,12 +255,16 @@ export const approveComment = async (req, res) => {
     comment.isApproved = true;
     await review.save();
 
+    // Send approval email
+    await sendCommentApprovalEmail(comment.userEmail, comment.content);
+
     res.status(200).json({ message: "Comment approved successfully", data: comment });
   } catch (err) {
     res.status(500).json({ error: "Error approving comment" });
   }
 };
 
+// ❌ Delete (Reject) Comment Function (with email notification)
 export const deleteComment = async (req, res) => {
   try {
     const { reviewId, commentId } = req.params;
@@ -228,8 +274,14 @@ export const deleteComment = async (req, res) => {
     const comment = review.comments.id(commentId);
     if (!comment) return res.status(404).json({ error: "Comment not found" });
 
+    const userEmail = comment.userEmail;
+    const commentContent = comment.content;
+
     comment.remove();
     await review.save();
+
+    // Send rejection email
+    await sendCommentRejectionEmail(userEmail, commentContent, "Your comment did not meet our guidelines.");
 
     res.status(200).json({ message: "Comment deleted successfully" });
   } catch (err) {

@@ -1,8 +1,4 @@
-
-  
-
-
-    import mongoose from "mongoose";
+ import mongoose from "mongoose";
 
 const reviewSchema = new mongoose.Schema({
   product: { type: mongoose.Schema.Types.ObjectId, ref: "Product", required: true },
@@ -10,6 +6,7 @@ const reviewSchema = new mongoose.Schema({
   rating: { type: Number, required: true },
   comment: { type: String },
   reviewStatus: { type: String, enum: ["pending", "approved", "rejected"], default: "pending" },
+  isApproved: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now }
 });
 

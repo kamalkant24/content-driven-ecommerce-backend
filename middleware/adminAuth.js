@@ -1,5 +1,6 @@
 import { jwtDecode } from "jwt-decode";
-import UserRegister from "../models/newUserRegisterModel.js";
+import adminRegister from "../models/adminModel.js"; // Add .js explicitly
+
 
 const adminAuth = async (req, res, next) => {
     try {
@@ -7,7 +8,7 @@ const adminAuth = async (req, res, next) => {
         if (!token) return res.status(401).json({ error: "Access denied" });
 
         const decoded = jwtDecode(token);
-        const admin = await UserRegister.findById(decoded._id);
+        const admin = await adminRegister.findById(decoded._id);
 
         if (!admin || admin.role !== "admin") {
             return res.status(403).json({ error: "Unauthorized: Admin access required" });
