@@ -76,6 +76,7 @@ export const getCarts = async (req, res) => {
 export const updateCart = async (req, res) => {
   try {
     const { productId, count } = req.body;
+    const baseURL = "http://localhost:8080/assets/products"; // Define baseURL
 
     const cart = await userCart.findOne({ customer: req.user._id });
     if (!cart) {
@@ -95,15 +96,28 @@ export const updateCart = async (req, res) => {
 
     const updatedCart = await cart.populate("products.product");
 
+    // **Add image URLs like in getCarts**
+    const cartWithImageURLs = {
+      ...updatedCart.toObject(),
+      products: updatedCart.products.map((item) => ({
+        ...item.toObject(),
+        product: {
+          ...item.product.toObject(),
+          images: item.product.images?.map((image) => `${baseURL}/${image}`) || [],
+        },
+      })),
+    };
+
     return res.status(200).json({
       message: "Cart updated successfully",
-      cart: updatedCart
+      cart: cartWithImageURLs,
     });
 
   } catch (error) {
     res.status(500).json({ errorMessage: error.message });
   }
 };
+
 
 // Remove a product from the cart
 export const removeFromCart = async (req, res) => {
