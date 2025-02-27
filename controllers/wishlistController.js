@@ -37,18 +37,34 @@ export const getWishlist = async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ message: "Unauthorized access." });
 
+    const baseURL = "http://localhost:8080/assets/products";
+
     const wishlist = await Wishlist.findOne({ customer: req.user._id })
-      .populate("products.product", "title price")
+      .populate("products.product") 
       .select("products createdDate");
 
     if (!wishlist) return res.status(404).json({ message: "Wishlist not found." });
 
-    res.status(200).json({ wishlist });
+    // Modify products to include image URLs
+    const wishlistWithImageURLs = {
+      ...wishlist.toObject(),
+      products: wishlist.products.map(item => ({
+        ...item.toObject(),
+        product: {
+          ...item.product.toObject(),
+          images: item.product.images?.map(image => `${baseURL}/${image}`) || [],
+        }
+      }))
+    };
+
+    res.status(200).json({ wishlist: wishlistWithImageURLs });
+
   } catch (error) {
     console.error("Get Wishlist Error:", error);
     res.status(500).json({ errorMessage: error.message });
   }
 };
+
 
 // Remove product from wishlist
 export const removeFromWishlist = async (req, res) => {
