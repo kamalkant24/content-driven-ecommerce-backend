@@ -20,31 +20,66 @@ export const checkout = async (req, res) => {
     if (!shipping?.price || !offer?.discount)
       return res.status(400).json({ message: "Invalid shipping or offer details." });
 
-    const cart = await userCart.findOne({ customer: req.user._id }).populate("products.product", "title price");
-    if (!cart || !cart.products.length) return res.status(400).json({ message: "Cart is empty." });
+    // ✅ Fetch only the logged-in user's cart
+    const cart = await userCart.findOne({ customer: req.user._id })
+      .populate("products.product", "title price discount_price");
 
-    const validProducts = cart.products.filter(p => p.product?.title && p.product?.price);
-    if (!validProducts.length) return res.status(400).json({ message: "No valid products found." });
+    if (!cart || !cart.products.length) 
+      return res.status(400).json({ message: "Cart is empty." });
 
-    const totalPrice = validProducts.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
-    const discountAmount = (totalPrice * offer.discount) / 100;
-    const netPrice = (totalPrice + shipping.price - discountAmount).toFixed(2);
+    // ✅ Step 1: Calculate total product price before discount
+    let totalProductPrice = cart.products.reduce(
+      (sum, item) => sum + ((item.product.discount_price ?? item.product.price) * item.quantity),
+      0
+    );
 
-    const lineItems = validProducts.map(item => ({
+    // ✅ Ensure that totalPrice in checkout is SAME as in cart
+    if (totalProductPrice !== cart.totalPrice) {
+      console.error("Mismatch in totalPrice!", { cartTotal: cart.totalPrice, calculatedTotal: totalProductPrice });
+      return res.status(400).json({ message: "Total price mismatch. Please refresh your cart." });
+    }
+
+    // ✅ Step 2: Apply discount only on products
+    const discountAmount = (totalProductPrice * offer.discount) / 100;
+    const discountedPrice = totalProductPrice - discountAmount;
+
+    // ✅ Step 3: Add shipping charge AFTER discount
+    const netPrice = (discountedPrice + shipping.price).toFixed(2);
+
+    console.log({
+      totalProductPrice, 
+      discountAmount, 
+      discountedPrice, 
+      shippingCharge: shipping.price,
+      netPrice
+    });
+
+    // ✅ Prepare Stripe Line Items
+    const lineItems = cart.products.map(item => ({
       price_data: {
         currency: "usd",
         product_data: { name: item.product.title },
-        unit_amount: Math.round(item.product.price * 100),
+        unit_amount: Math.round((item.product.discount_price ?? item.product.price) * 100),
       },
       quantity: item.quantity,
     }));
 
+    // ✅ Add Shipping as a Separate Line Item
+    lineItems.push({
+      price_data: {
+        currency: "usd",
+        product_data: { name: "Shipping" },
+        unit_amount: Math.round(shipping.price * 100),
+      },
+      quantity: 1,
+    });
+
+    // ✅ Fetch User Details
     let user = await userRegister.findById(req.user._id);
     if (!user) return res.status(404).json({ message: "User not found." });
 
-    // 🔑 Stripe Customer Handling
+    // ✅ Manage Stripe Customer ID
     let stripeCustomerId = user.stripeCustomerId;
-
     if (!stripeCustomerId) {
       const customer = await stripe.customers.create({
         email: req.user.email,
@@ -55,26 +90,36 @@ export const checkout = async (req, res) => {
       await user.save();
     }
 
+    // ✅ Apply Discount as a Stripe Coupon (Only for Products)
+    const coupon = await stripe.coupons.create({
+      amount_off: Math.round(discountAmount * 100), // Convert to cents
+      currency: "usd",  // ✅ Fix: Currency added
+      duration: "once",
+    });
+
+    // ✅ Create Stripe Checkout Session
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       mode: "payment",
-      customer: stripeCustomerId, // ✅ Reuse customer for auto-filled payment info
+      customer: stripeCustomerId,
       success_url: `${process.env.CLIENT_URL}/order-success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.CLIENT_URL}/order-cancelled`,
       line_items: lineItems,
+      discounts: [{ coupon: coupon.id }],
       metadata: { userId: req.user._id },
     });
 
+    // ✅ Save Checkout Details
     await new CheckoutModel({
       customer: req.user._id,
-      noOfItems: validProducts.length,
-      totalPrice,
+      noOfItems: cart.products.length,
+      totalPrice: totalProductPrice, // Products total before discount
       shipping,
       offer,
       netPrice,
       stripeSessionId: session.id,
-      stripeCustomerId, // 🔑 Save customer ID for future reference
-      products: validProducts.map(p => ({ product: p.product._id, quantity: p.quantity })),
+      stripeCustomerId,
+      products: cart.products.map(p => ({ product: p.product._id, quantity: p.quantity })),
     }).save();
 
     res.status(200).json({ url: session.url });
@@ -83,6 +128,7 @@ export const checkout = async (req, res) => {
     res.status(500).json({ errorMessage: error.message });
   }
 };
+
 
 export const stripeWebhook = async (req, res) => {
   const sig = req.headers['stripe-signature'];

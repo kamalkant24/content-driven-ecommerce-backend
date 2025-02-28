@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 
 const checkoutSchema = new mongoose.Schema({
-  customer: { type: mongoose.Schema.Types.ObjectId, ref: "UserRegister", required: true }, // Reference to UserRegister
+  customer: { type: mongoose.Schema.Types.ObjectId, ref: "UserRegister", required: true },
   products: [
     {
       product: { type: mongoose.Schema.Types.ObjectId, ref: "userProducts", required: true },
@@ -22,7 +22,7 @@ const checkoutSchema = new mongoose.Schema({
   },
   netPrice: { type: Number, required: true },
   stripeSessionId: { type: String, required: true },
-  stripeCustomerId: { type: String, default: null }, // 🔑 Added Stripe Customer ID field
+  stripeCustomerId: { type: String, default: null },
   createdAt: { type: Date, default: Date.now },
 });
 

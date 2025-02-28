@@ -5,8 +5,8 @@ import userProducts from "../models/productsModels.js"
 export const addToCart = async (req, res) => {
   try {
     const { productId } = req.body;
-
     let userCartData = await userCart.findOne({ customer: req.user._id });
+
     if (!userCartData) {
       userCartData = new userCart({ customer: req.user._id, products: [] });
     }
@@ -30,12 +30,14 @@ export const addToCart = async (req, res) => {
 
     userCartData.products.push({ product: productId, quantity: 1 });
 
-    // Decrease product stock
+    // 🏷️ Decrease product stock
     product.quantity -= 1;
     await product.save();
-    
+
     await userCartData.save();
-    const updatedCart = await userCartData.populate("products.product");
+    const updatedCart = await userCartData.populate("products.product", "title price discount_price images");
+
+    console.log("Cart Total Price (After Add):", updatedCart.totalPrice); // Debugging
 
     res.status(200).json({
       message: "Product added to cart",
@@ -55,11 +57,13 @@ export const getCarts = async (req, res) => {
 
     const cart = await userCart
       .findOne({ customer: req.user._id })
-      .populate("products.product");
+      .populate("products.product", "title price discount_price images");
 
     if (!cart) {
       return res.status(404).json({ message: "Cart not found" });
     }
+
+    console.log("Cart Total Price (Get Cart):", cart.totalPrice); // Debugging
 
     // Map through cart products to add full image URLs
     const cartWithImageURLs = {
@@ -83,7 +87,6 @@ export const getCarts = async (req, res) => {
     res.status(500).json({ errorMessage: error.message });
   }
 };
-
 // Update the quantity of a product in the cart
 export const updateCart = async (req, res) => {
   try {

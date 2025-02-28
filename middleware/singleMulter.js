@@ -21,7 +21,10 @@ const storage = multer.diskStorage({
       dir = "./resource/static/assets/banner";
     } else if (file.fieldname === "product") {
       dir = "./resource/static/assets/products";
+    } if (file.fieldname === "image") {  // ✅ Blog images field name should be "image"
+      dir = "./resource/static/assets/blogs";
     }
+    
 
     ensureDirectoryExists(dir); // Ensure the directory exists
     cb(null, dir);
@@ -57,6 +60,9 @@ export const uploadMultipleImages = uploadImage.array("image", 10); // Max 10 im
 export const uploadProfileImage = uploadImage.single("logo");       // For logo uploads
 export const uploadBannerImage = uploadImage.single("banner");      // For banner uploads
 export const uploadProductImage = uploadImage.single("product");    // For product uploads
+export const uploadBlogImage = uploadImage.array("image", 10); // Multiple images with key "image"
+ // Allows up to 10 images
+         
 
 // ✅ Handle both logo and banner in a single request
 export const uploadLogoAndBanner = uploadImage.fields([

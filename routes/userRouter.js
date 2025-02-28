@@ -17,7 +17,7 @@ import {
 import { createUserProducts, getAllProducts, getProductById, updateProduct, deleteProduct, getVendorProducts } from "../controllers/productsController.js";
 import { searchAll } from "../controllers/globalSearchController.js";
 import { userChat } from "../controllers/chatController.js";
-import { uploadLogoAndBanner } from "../middleware/singleMulter.js";
+import { uploadLogoAndBanner,uploadBlogImage } from "../middleware/singleMulter.js";
 import uploadImage from "../middleware/singleMulter.js";
 import uploadFile from "../models/upload.js"
 import { addToCart, getCarts, updateCart, removeFromCart } from "../controllers/cartController.js";
@@ -69,10 +69,10 @@ userRouter.get("/get-files", verifyToken, getListFiles);
 userRouter.get("/download-all", verifyToken, download);
 
 // Blog Routes
-userRouter.post("/create-blog", verifyToken, createUserBlogs);             // Create a new blog
+userRouter.post("/create-blog", verifyToken, uploadBlogImage, isVendor,createUserBlogs);             // Create a new blog
 userRouter.get("/get-all-blogs", verifyToken, getAllBlogs);                // Get all blogs with pagination and search
 userRouter.get("/get-all-blogby/:id", verifyToken, getBlogById);           // Get a blog by ID
-userRouter.post("/update-blogs/:id", verifyToken, updateBlog);              // Update a blog
+userRouter.post("/update-blogs/:id", verifyToken, isVendor, uploadBlogImage,updateBlog);              // Update a blog
 userRouter.delete("/delete-blog/:id", verifyToken, deleteBlog);            // Delete a blog
 userRouter.post("/like-blogs/:id/like", verifyToken, likeBlog);            // Like a blog
 userRouter.post("/unlike-blogs/:id/unlike", verifyToken, unlikeBlog);      // Unlike a blog
