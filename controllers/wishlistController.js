@@ -25,12 +25,32 @@ export const addToWishlist = async (req, res) => {
     }
 
     await wishlist.save();
-    res.status(200).json({ message: "Product added to wishlist.", wishlist });
+
+    // Populate wishlist with product details
+    let updatedWishlist = await Wishlist.findOne({ customer: req.user._id }).populate("products.product");
+
+    const baseURL = "http://localhost:8080/assets/products";
+
+    // Add full image URLs
+    const wishlistWithImageURLs = {
+      ...updatedWishlist.toObject(),
+      products: updatedWishlist.products.map(item => ({
+        ...item.toObject(),
+        product: {
+          ...item.product.toObject(),
+          images: item.product.images?.map(image => `${baseURL}/${image}`) || [],
+        }
+      }))
+    };
+
+    res.status(200).json({ message: "Product added to wishlist.", wishlist: wishlistWithImageURLs });
+
   } catch (error) {
     console.error("Add to Wishlist Error:", error);
     res.status(500).json({ errorMessage: error.message });
   }
 };
+
 
 // Get customer's wishlist
 export const getWishlist = async (req, res) => {
@@ -74,17 +94,35 @@ export const removeFromWishlist = async (req, res) => {
     const { productId } = req.params;
     if (!productId) return res.status(400).json({ message: "Product ID is required." });
 
-    const wishlist = await Wishlist.findOneAndUpdate(
+    let wishlist = await Wishlist.findOneAndUpdate(
       { customer: req.user._id },
       { $pull: { products: { product: productId } } },
       { new: true }
-    ).populate("products.product", "title price");
+    ).populate("products.product");
 
     if (!wishlist) return res.status(404).json({ message: "Wishlist not found or product not in wishlist." });
 
-    res.status(200).json({ message: "Product removed from wishlist.", wishlist });
+    const baseURL = "http://localhost:8080/assets/products";
+
+    // Add full image URLs
+    const wishlistWithImageURLs = {
+      ...wishlist.toObject(),
+      products: wishlist.products.map(item => ({
+        ...item.toObject(),
+        product: {
+          ...item.product.toObject(),
+          images: item.product.images?.map(image => `${baseURL}/${image}`) || [],
+        }
+      }))
+    };
+
+    res.status(200).json({ message: "Product removed from wishlist.", wishlist: wishlistWithImageURLs });
+
   } catch (error) {
     console.error("Remove from Wishlist Error:", error);
     res.status(500).json({ errorMessage: error.message });
   }
 };
+
+
+
