@@ -22,7 +22,6 @@ const adminRegisterSchema = new mongoose.Schema(
     },
     phone: {
       type: String,
-      required: [true, "Phone number is required"],
      
     },
     role: {
