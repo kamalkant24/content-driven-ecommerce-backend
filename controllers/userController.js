@@ -118,14 +118,13 @@ export const getAllUser = async (req, res) => {
 };
 // Get All Vendors (Name & ID)
 export const getAllVendors = async (req, res) => {
-  // if (!req.user || req.user.role !== "customer") {
-  //   return res.status(403).json({ message: "Access denied. Only customers can perform this action." });
-  // }
-
   try {
-    const vendors = await UserRegister.find({ role: "vendor" }).select("_id name");
+    // Fetch only vendors who are approved
+    const vendors = await UserRegister.find({ role: "vendor", isApproved: true })
+      .select("_id name");
+
     if (!vendors.length) {
-      return res.status(404).json({ message: "No vendors found" });
+      return res.status(404).json({ message: "No approved vendors found" });
     }
 
     res.status(200).json({
@@ -136,8 +135,6 @@ export const getAllVendors = async (req, res) => {
     res.status(500).json({ message: "Error fetching vendors", error: error.message });
   }
 };
-
-
 
 export const updateUser = async (req, res) => {
   console.log("Request Body:", req.body);   // ✅ Check form fields
