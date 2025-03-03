@@ -53,7 +53,7 @@ userRouter.post(
   ]),
   updateUser
 );
-userRouter.get("/getAllvendor",verifyToken, verifyCustomerRole, getAllVendors);
+userRouter.get("/getAllvendor",verifyToken, getAllVendors);
 userRouter.get("/user-profile", verifyToken, getUserProfile);
 userRouter.post(
   "/confirmation",
