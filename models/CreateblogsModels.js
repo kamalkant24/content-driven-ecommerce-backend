@@ -13,7 +13,7 @@ const blogsSchema = new Schema({
     type: String,
     enum: [
       "Electronics",
-      "Accessories",
+      "Clothing & Accessories",
       "Home & Living",
       "Beauty & Health",
       "Sports & Outdoors"
