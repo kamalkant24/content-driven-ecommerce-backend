@@ -118,9 +118,9 @@ export const getAllUser = async (req, res) => {
 };
 // Get All Vendors (Name & ID)
 export const getAllVendors = async (req, res) => {
-  if (!req.user || req.user.role !== "customer") {
-    return res.status(403).json({ message: "Access denied. Only customers can perform this action." });
-  }
+  // if (!req.user || req.user.role !== "customer") {
+  //   return res.status(403).json({ message: "Access denied. Only customers can perform this action." });
+  // }
 
   try {
     const vendors = await UserRegister.find({ role: "vendor" }).select("_id name");
