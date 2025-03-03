@@ -37,20 +37,26 @@ export const createUserBlogs = async (req, res) => {
 };
 
 // Get all blogs with pagination, search, tags, and category filters
+import mongoose from "mongoose";
+
 export const getAllBlogs = async (req, res) => {
-  const { page = 1, pageSize = 10, search, tags, categories } = req.query;
+  const { page = 1, pageSize = 10, search, tags, categories, vendorId } = req.query;
 
   try {
     const filters = {};
     if (search) filters.title = { $regex: search, $options: 'i' };
     if (tags) filters.tags = { $in: tags.split(',') };
     if (categories) filters.categories = categories;
+    if (vendorId) filters.vendor = new mongoose.Types.ObjectId(vendorId); // ✅ Convert to ObjectId
 
     const baseURL = "http://localhost:8080/assets/blogs"; // ✅ Blogs images base URL
 
     const blogs = await createBlogs.find(filters)
       .skip((page - 1) * parseInt(pageSize))
-      .limit(parseInt(pageSize));
+      .limit(parseInt(pageSize))
+      .populate("vendor", "name email") // ✅ Populate vendor details
+      .populate("likes", "name") // ✅ Populate likes to get user names
+      .populate("comments.user", "name"); // ✅ Populate commenters
 
     // ✅ Add full image URLs
     const blogsWithImages = blogs.map(blog => ({
@@ -70,6 +76,7 @@ export const getAllBlogs = async (req, res) => {
     res.status(400).json({ error: err.message });
   }
 };
+
 
 
 // Get a single blog with populated comments and likes
