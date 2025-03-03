@@ -4,10 +4,23 @@ import fs from "fs";
 
 // ✅ Ensure Directory Exists
 const ensureDirectoryExists = (dir) => {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+  try {
+    if (!fs.existsSync(dir)) {
+      console.log("Creating directory:", dir);
+      fs.mkdirSync(dir, { recursive: true });
+      console.log("Directory created successfully:", dir);
+    } else {
+      console.log("Directory already exists:", dir);
+    }
+  } catch (error) {
+    console.error("Error creating directory:", dir, error);
   }
 };
+
+// ✅ Ensure base directory exists
+const baseDir = "./resource/static/assets";
+ensureDirectoryExists(baseDir);
+
 
 // ✅ Multer Storage Setup
 const storage = multer.diskStorage({
@@ -19,7 +32,7 @@ const storage = multer.diskStorage({
       dir = "./resource/static/assets/profile";
     } else if (file.fieldname === "banner") {
       dir = "./resource/static/assets/banner";
-    } else if (file.fieldname === "product") {
+    } else if (file.fieldname === "images") {
       dir = "./resource/static/assets/products";
     } if (file.fieldname === "image") {  // ✅ Blog images field name should be "image"
       dir = "./resource/static/assets/blogs";
@@ -59,7 +72,7 @@ export const uploadSingleImage = uploadImage.single("image");
 export const uploadMultipleImages = uploadImage.array("image", 10); // Max 10 images
 export const uploadProfileImage = uploadImage.single("logo");       // For logo uploads
 export const uploadBannerImage = uploadImage.single("banner");      // For banner uploads
-export const uploadProductImage = uploadImage.single("product");    // For product uploads
+export const uploadProductImage = uploadImage.single("images");    // For product uploads
 export const uploadBlogImage = uploadImage.array("image", 10); // Multiple images with key "image"
  // Allows up to 10 images
          

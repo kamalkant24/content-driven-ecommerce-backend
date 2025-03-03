@@ -168,7 +168,7 @@ export const getAllProducts = async (req, res) => {
     const productsWithImageURLs = products.map(product => ({
       ...product.toObject(),
       images: product.images?.map(image => `${baseURL}/${image}`) || [],
-    }));
+}));
 
     const totalCount = await userProducts.countDocuments(filters);
 
