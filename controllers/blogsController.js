@@ -172,14 +172,38 @@ export const deleteBlog = async (req, res) => {
   try {
     const deletedBlog = await createBlogs.findByIdAndDelete(req.params.id);
 
-    if (!deletedBlog) return res.status(404).json({ message: "Blog not found" });
+    if (!deletedBlog) {
+      return res.status(404).json({ message: "Blog not found" });
+    }
 
-    res.status(200).json({ message: "Blog deleted successfully" });
+    // ✅ Blogs images base URL
+    const baseURL = "http://localhost:8080/assets/blogs";
+
+    // ✅ Delete ke baad updated list fetch karna
+    const remainingBlogs = await createBlogs.find()
+      .populate("vendor", "name email") // ✅ Populate vendor details
+      .populate("likes", "name") // ✅ Populate likes to get user names
+      .populate("comments.user", "name") // ✅ Populate commenters
+      .lean(); // ✅ Convert mongoose docs to plain JS objects
+
+    // ✅ Add full image URLs
+    const blogsWithImages = remainingBlogs.map(blog => ({
+      ...blog,
+      image: blog.image?.map(img => `${baseURL}/${img}`) || [],
+    }));
+
+    res.status(200).json({
+      message: "Blog deleted successfully",
+      data: blogsWithImages, // ✅ Pure blogs data with images & details
+      total: blogsWithImages.length, // ✅ Remaining blogs count
+    });
   } catch (error) {
     console.error("Error deleting blog:", error);
     res.status(400).json({ error: error.message });
   }
 };
+
+
 
 // Like a blog post
 export const likeBlog = async (req, res) => {
