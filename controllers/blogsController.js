@@ -281,27 +281,27 @@ export const commentOnBlog = async (req, res) => {
 
     if (!blog) return res.status(404).json({ message: "Blog not found" });
 
-    // ✅ Base URL for profile images
-    const profileBaseURL = "http://localhost:8080/assets/profile";
-
-    // ✅ New comment with user details
-    const userComment = {
+    // ✅ New comment object
+    const newComment = {
       user: req.user._id,
-      name: req.user.name,
-      profile: req.user.profile_img, // Only filename stored in DB
       comment,
       createdAt: new Date()
     };
 
-    blog.comments.push(userComment);
+    blog.comments.push(newComment);
     await blog.save();
 
-    // ✅ Populate comments with user details
+    // ✅ Base URL for profile images
+    const profileBaseURL = "http://localhost:8080/assets/profile";
+
+    // ✅ Fetch updated blog with populated comments
     const updatedBlog = await createBlogs.findById(req.params.id)
-      .populate("comments.user", "name profile_img") // Fetch profile_img from DB
+      .populate("vendor", "name email") // Vendor info
+      .populate("likes", "name") // Likes info
+      .populate("comments.user", "name profile_img") // Populate name & profile_img
       .lean();
 
-    // ✅ Convert profile image filename to full URL
+    // ✅ Modify comments to include full profile image URL
     updatedBlog.comments = updatedBlog.comments.map(cmt => ({
       _id: cmt._id,
       comment: cmt.comment,
@@ -309,15 +309,15 @@ export const commentOnBlog = async (req, res) => {
       user: {
         _id: cmt.user._id,
         name: cmt.user.name,
-        profile: cmt.user.profile_img 
-          ? `${profileBaseURL}/${cmt.user.profile_img}` // Convert filename to URL
+        profile_img: cmt.user.profile_img
+          ? `${profileBaseURL}/${cmt.user.profile_img}` // Convert filename to full URL
           : null
       }
     }));
 
     res.status(200).json({ 
       message: "Comment added successfully", 
-      comment: updatedBlog.comments[updatedBlog.comments.length - 1] // Return latest comment
+      data: updatedBlog // ✅ Full blog with formatted comments
     });
 
   } catch (error) {
@@ -325,5 +325,4 @@ export const commentOnBlog = async (req, res) => {
     res.status(400).json({ error: error.message });
   }
 };
-
 
