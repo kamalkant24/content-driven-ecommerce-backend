@@ -81,8 +81,8 @@ userRouter.post("/comment-blog/:id", verifyToken, commentOnBlog);          // Ad
 
 
 // Product Routes
-userRouter.post("/create-products", verifyToken, isVendor, uploadImage.array("image"), createUserProducts);
-userRouter.post("/update-product/:id", verifyToken, isVendor, uploadImage.array("image"), updateProduct);
+userRouter.post("/create-products", verifyToken, isVendor, uploadImage.array("images"), createUserProducts);
+userRouter.post("/update-product/:id", verifyToken, isVendor, uploadImage.array("images"), updateProduct);
 
 userRouter.get("/get-all-products", verifyToken, getAllProducts);
 userRouter.get("/get-product/:id", verifyToken, getProductById);
