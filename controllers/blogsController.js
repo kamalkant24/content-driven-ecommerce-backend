@@ -331,3 +331,121 @@ export const commentOnBlog = async (req, res) => {
 };
 
 
+export const editCommentOnBlog = async (req, res) => {
+  const { comment } = req.body;
+  const { blogId, commentId } = req.params;
+
+  if (!comment) return res.status(400).json({ message: "Comment is required." });
+
+  try {
+    const blog = await createBlogs.findById(blogId);
+    if (!blog) return res.status(404).json({ message: "Blog not found" });
+
+    // ✅ Find the comment inside the blog
+    const commentToEdit = blog.comments.id(commentId);
+    if (!commentToEdit) return res.status(404).json({ message: "Comment not found" });
+
+    // ✅ Check if the logged-in user is the owner of the comment
+    if (commentToEdit.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: "You are not authorized to edit this comment" });
+    }
+
+    // ✅ Update the comment
+    commentToEdit.comment = comment;
+    commentToEdit.createdAt = new Date();
+    await blog.save();
+
+    // ✅ Populate vendor, likes, and comments (with name & profile_img)
+    const baseURL = "http://localhost:8080/assets/blogs";
+    const profileBaseURL = "http://localhost:8080/assets/profile";
+
+    const updatedBlog = await createBlogs.findById(blogId)
+      .populate("vendor", "name email")
+      .populate("likes", "name")
+      .populate("comments.user", "name profile_img")
+      .lean();
+
+    // ✅ Add full image URLs
+    updatedBlog.image = updatedBlog.image?.map(img => `${baseURL}/${img}`) || [];
+
+    // ✅ Format comments with full profile image URLs
+    updatedBlog.comments = updatedBlog.comments.map(comment => ({
+      _id: comment._id,
+      comment: comment.comment,
+      createdAt: comment.createdAt,
+      user: {
+        _id: comment.user._id,
+        name: comment.user.name,
+        profile_img: comment.user.profile_img
+          ? `${profileBaseURL}/${comment.user.profile_img}`
+          : null
+      }
+    }));
+
+    res.status(200).json({ message: "Comment updated successfully", data: updatedBlog });
+
+  } catch (error) {
+    console.error("Error editing comment:", error);
+    res.status(400).json({ error: error.message });
+  }
+};
+
+
+
+export const deleteCommentOnBlog = async (req, res) => {
+  const { blogId, commentId } = req.params;
+
+  try {
+    const blog = await createBlogs.findById(blogId);
+    if (!blog) return res.status(404).json({ message: "Blog not found" });
+
+    // ✅ Find the comment inside the blog
+    const commentIndex = blog.comments.findIndex(cmt => cmt._id.toString() === commentId);
+    if (commentIndex === -1) return res.status(404).json({ message: "Comment not found" });
+
+    // ✅ Check if the logged-in user is the owner of the comment
+    if (blog.comments[commentIndex].user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: "You are not authorized to delete this comment" });
+    }
+
+    // ✅ Remove the comment
+    blog.comments.splice(commentIndex, 1);
+    await blog.save();
+
+    // ✅ Fetch the updated blog with proper image URLs and populated comments
+    const profileBaseURL = "http://localhost:8080/assets/profile";
+    const blogImageBaseURL = "http://localhost:8080/assets/blogs";
+
+    const updatedBlog = await createBlogs.findById(blogId)
+      .populate("vendor", "name email")
+      .populate("likes", "name")
+      .populate("comments.user", "name profile_img")
+      .lean();
+
+    // ✅ Convert blog images to full URLs
+    updatedBlog.image = updatedBlog.image.map(img => `${blogImageBaseURL}/${img}`);
+
+    // ✅ Format comments to include full profile image URLs
+    updatedBlog.comments = updatedBlog.comments.map(cmt => ({
+      _id: cmt._id,
+      comment: cmt.comment,
+      createdAt: cmt.createdAt,
+      user: {
+        _id: cmt.user._id,
+        name: cmt.user.name,
+        profile_img: cmt.user.profile_img
+          ? `${profileBaseURL}/${cmt.user.profile_img}`
+          : null
+      }
+    }));
+
+    res.status(200).json({ 
+      message: "Comment deleted successfully", 
+      data: updatedBlog 
+    });
+
+  } catch (error) {
+    console.error("Error deleting comment:", error);
+    res.status(400).json({ error: error.message });
+  }
+};

@@ -12,7 +12,9 @@ import {
   deleteBlog,
   likeBlog,
   unlikeBlog,
-  commentOnBlog
+  commentOnBlog,
+  editCommentOnBlog,
+  deleteCommentOnBlog
 } from "../controllers/blogsController.js";
 import { createUserProducts, getAllProducts, getProductById, updateProduct, deleteProduct, getVendorProducts } from "../controllers/productsController.js";
 import { searchAll } from "../controllers/globalSearchController.js";
@@ -77,7 +79,8 @@ userRouter.delete("/delete-blog/:id", verifyToken, deleteBlog);            // De
 userRouter.post("/like-blogs/:id/like", verifyToken, likeBlog);            // Like a blog
 userRouter.post("/unlike-blogs/:id/unlike", verifyToken, unlikeBlog);      // Unlike a blog
 userRouter.post("/comment-blog/:id", verifyToken, commentOnBlog);          // Add a comment to a blog
-
+userRouter.post("/blog/:blogId/comment/:commentId", verifyToken,editCommentOnBlog)
+userRouter.delete("/blog/:blogId/comment/:commentId", verifyToken,deleteCommentOnBlog)
 
 
 // Product Routes
