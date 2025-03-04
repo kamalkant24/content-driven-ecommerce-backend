@@ -219,14 +219,27 @@ export const likeBlog = async (req, res) => {
     blog.likes.push(req.user._id);
     await blog.save();
 
-    res.status(200).json({ message: "Blog liked successfully", data: blog });
+    // ✅ Blogs images base URL
+    const baseURL = "http://localhost:8080/assets/blogs";
+
+    // ✅ Populate vendor, likes, and comments
+    const updatedBlog = await createBlogs.findById(req.params.id)
+      .populate("vendor", "name email")
+      .populate("likes", "name")
+      .populate("comments.user", "name")
+      .lean();
+
+    // ✅ Add full image URLs
+    updatedBlog.image = updatedBlog.image?.map(img => `${baseURL}/${img}`) || [];
+
+    res.status(200).json({ message: "Blog liked successfully", data: updatedBlog });
   } catch (error) {
     console.error("Error liking blog:", error);
     res.status(400).json({ error: error.message });
   }
 };
 
-// Unlike a blog post
+// ✅ Unlike a blog post with full image URLs
 export const unlikeBlog = async (req, res) => {
   try {
     const blog = await createBlogs.findById(req.params.id);
@@ -236,12 +249,26 @@ export const unlikeBlog = async (req, res) => {
     blog.likes = blog.likes.filter(userId => userId.toString() !== req.user._id.toString());
     await blog.save();
 
-    res.status(200).json({ message: "Blog unliked successfully", data: blog });
+    // ✅ Blogs images base URL
+    const baseURL = "http://localhost:8080/assets/blogs";
+
+    // ✅ Populate vendor, likes, and comments
+    const updatedBlog = await createBlogs.findById(req.params.id)
+      .populate("vendor", "name email")
+      .populate("likes", "name")
+      .populate("comments.user", "name")
+      .lean();
+
+    // ✅ Add full image URLs
+    updatedBlog.image = updatedBlog.image?.map(img => `${baseURL}/${img}`) || [];
+
+    res.status(200).json({ message: "Blog unliked successfully", data: updatedBlog });
   } catch (error) {
     console.error("Error unliking blog:", error);
     res.status(400).json({ error: error.message });
   }
 };
+
 
 // Add a comment to a blog post
 export const commentOnBlog = async (req, res) => {
