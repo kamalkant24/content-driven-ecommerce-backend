@@ -281,12 +281,46 @@ export const commentOnBlog = async (req, res) => {
 
     if (!blog) return res.status(404).json({ message: "Blog not found" });
 
-    blog.comments.push({ user: req.user._id, comment });
+    // ✅ Base URL for profile images
+    const profileBaseURL = "http://localhost:8080/assets/profile";
+
+    // ✅ New comment with user details
+    const userComment = {
+      user: req.user._id,
+      name: req.user.name,
+      profile: req.user.profile, // Only filename stored in DB
+      comment,
+      createdAt: new Date()
+    };
+
+    blog.comments.push(userComment);
     await blog.save();
 
-    res.status(200).json({ message: "Comment added successfully", data: blog });
+    // ✅ Populate comments with user details
+    const updatedBlog = await createBlogs.findById(req.params.id)
+      .populate("comments.user", "name profile")
+      .lean();
+
+    // ✅ Convert profile images to full URL
+    updatedBlog.comments = updatedBlog.comments.map(cmt => ({
+      _id: cmt._id,
+      comment: cmt.comment,
+      createdAt: cmt.createdAt,
+      user: {
+        _id: cmt.user._id,
+        name: cmt.user.name,
+        profile: cmt.user.profile ? `${profileBaseURL}/${cmt.user.profile}` : null
+      }
+    }));
+
+    res.status(200).json({ 
+      message: "Comment added successfully", 
+      comment: updatedBlog.comments[updatedBlog.comments.length - 1] // Last added comment
+    });
+
   } catch (error) {
     console.error("Error adding comment:", error);
     res.status(400).json({ error: error.message });
   }
 };
+
