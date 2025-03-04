@@ -291,8 +291,9 @@ export const commentOnBlog = async (req, res) => {
     blog.comments.push(newComment);
     await blog.save();
 
-    // ✅ Base URL for profile images
+    // ✅ Base URLs for profile images & blog images
     const profileBaseURL = "http://localhost:8080/assets/profile";
+    const blogImageBaseURL = "http://localhost:8080/assets/blogs";
 
     // ✅ Fetch updated blog with populated comments
     const updatedBlog = await createBlogs.findById(req.params.id)
@@ -300,6 +301,9 @@ export const commentOnBlog = async (req, res) => {
       .populate("likes", "name") // Likes info
       .populate("comments.user", "name profile_img") // Populate name & profile_img
       .lean();
+
+    // ✅ Convert blog image filenames to full URLs
+    updatedBlog.image = updatedBlog.image.map(img => `${blogImageBaseURL}/${img}`);
 
     // ✅ Modify comments to include full profile image URL
     updatedBlog.comments = updatedBlog.comments.map(cmt => ({
@@ -317,7 +321,7 @@ export const commentOnBlog = async (req, res) => {
 
     res.status(200).json({ 
       message: "Comment added successfully", 
-      data: updatedBlog // ✅ Full blog with formatted comments
+      data: updatedBlog // ✅ Full blog with formatted images & comments
     });
 
   } catch (error) {
@@ -325,4 +329,5 @@ export const commentOnBlog = async (req, res) => {
     res.status(400).json({ error: error.message });
   }
 };
+
 
