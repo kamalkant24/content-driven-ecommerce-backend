@@ -288,7 +288,7 @@ export const commentOnBlog = async (req, res) => {
     const userComment = {
       user: req.user._id,
       name: req.user.name,
-      profile: req.user.profile, // Only filename stored in DB
+      profile: req.user.profile_img, // Only filename stored in DB
       comment,
       createdAt: new Date()
     };
@@ -298,10 +298,10 @@ export const commentOnBlog = async (req, res) => {
 
     // ✅ Populate comments with user details
     const updatedBlog = await createBlogs.findById(req.params.id)
-      .populate("comments.user", "name profile")
+      .populate("comments.user", "name profile_img") // Fetch profile_img from DB
       .lean();
 
-    // ✅ Convert profile images to full URL
+    // ✅ Convert profile image filename to full URL
     updatedBlog.comments = updatedBlog.comments.map(cmt => ({
       _id: cmt._id,
       comment: cmt.comment,
@@ -309,13 +309,15 @@ export const commentOnBlog = async (req, res) => {
       user: {
         _id: cmt.user._id,
         name: cmt.user.name,
-        profile: cmt.user.profile ? `${profileBaseURL}/${cmt.user.profile}` : null
+        profile: cmt.user.profile_img 
+          ? `${profileBaseURL}/${cmt.user.profile_img}` // Convert filename to URL
+          : null
       }
     }));
 
     res.status(200).json({ 
       message: "Comment added successfully", 
-      comment: updatedBlog.comments[updatedBlog.comments.length - 1] // Last added comment
+      comment: updatedBlog.comments[updatedBlog.comments.length - 1] // Return latest comment
     });
 
   } catch (error) {
@@ -323,4 +325,5 @@ export const commentOnBlog = async (req, res) => {
     res.status(400).json({ error: error.message });
   }
 };
+
 
