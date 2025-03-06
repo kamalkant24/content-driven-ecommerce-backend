@@ -27,10 +27,10 @@ export const checkout = async (req, res) => {
     if (!cart || !cart.products.length) 
       return res.status(400).json({ message: "Cart is empty." });
 
-    // ✅ Check for an existing checkout entry for this user
+    // ✅ Check if an existing pending checkout entry exists for this user
     let existingCheckout = await CheckoutModel.findOne({ 
       customer: req.user._id, 
-      status: "pending" // Active (not completed)
+      status: "pending"
     });
 
     // ✅ Step 1: Calculate total product price before discount
@@ -154,6 +154,7 @@ export const checkout = async (req, res) => {
     res.status(500).json({ errorMessage: error.message });
   }
 };
+
 
 
 
