@@ -1,5 +1,4 @@
 import mongoose from "mongoose";
-
 const checkoutSchema = new mongoose.Schema({
   customer: { type: mongoose.Schema.Types.ObjectId, ref: "UserRegister", required: true },
   products: [
@@ -22,8 +21,10 @@ const checkoutSchema = new mongoose.Schema({
   },
   netPrice: { type: Number, required: true },
   stripeSessionId: { type: String, required: true },
+  stripeSessionUrl: { type: String, required: true },  // ✅ New field to store the checkout URL
   stripeCustomerId: { type: String, default: null },
   createdAt: { type: Date, default: Date.now },
 });
 
 export default mongoose.models.Checkout || mongoose.model("Checkout", checkoutSchema);
+
