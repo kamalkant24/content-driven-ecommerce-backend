@@ -117,6 +117,7 @@ export const checkout = async (req, res) => {
       offer,
       netPrice,
       stripeSessionId: session.id,
+      stripeSessionUrl: session.url,  // ✅ Store the Stripe checkout URL
       stripeCustomerId,
       products: cart.products.map(p => ({ product: p.product._id, quantity: p.quantity })),
     }).save();
@@ -245,6 +246,38 @@ export const createCheckoutSession = async (req, res) => {
   }
 };
 
+
+export const getCheckoutsByCustomer = async (req, res) => {
+  try {
+    const { customerId } = req.params;
+    const baseUrl = "http://localhost:8080/assets/products/";
+
+    const checkouts = await CheckoutModel.find({ customer: customerId })
+      .populate("customer", "firstName lastName email phone")
+      .populate({
+        path: "products.product",
+        select: "title price discount_price description images category brand stock",
+      })
+      .lean();
+
+    if (!checkouts.length) 
+      return res.status(404).json({ message: "No checkout records found for this customer." });
+
+    // ✅ Safely modify image URLs
+    checkouts.forEach(checkout => {
+      checkout.products.forEach(item => {
+        if (item.product && item.product.images && Array.isArray(item.product.images)) {
+          item.product.images = item.product.images.map(img => `${baseUrl}${img}`);
+        }
+      });
+    });
+
+    res.status(200).json(checkouts);
+  } catch (error) {
+    console.error("Get Customer Checkouts Error:", error);
+    res.status(500).json({ errorMessage: error.message });
+  }
+};
 
 
 

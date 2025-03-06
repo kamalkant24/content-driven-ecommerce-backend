@@ -26,7 +26,7 @@ import { addToCart, getCarts, updateCart, removeFromCart } from "../controllers/
 import {
   getUserOrders, getOrderById,
   updateOrderStatus, cancelOrder, deleteOrder, checkout,
-  stripeWebhook,
+  stripeWebhook,getCheckoutsByCustomer
 } from "../controllers/orderController.js";
 import {
   addReview, getProductReviews, editReview,
@@ -112,6 +112,9 @@ userRouter.post("/checkout", verifyToken, checkout);
 
 // Add the Stripe Webhook route
 userRouter.post('/stripe-webhook', stripeWebhook);
+
+
+userRouter.get("/checkout/:customerId", getCheckoutsByCustomer);
 // Review Routes
 userRouter.post("/add-review", verifyToken, addReview);                      // Add a review
 userRouter.get("/get-reviews/:productId", getProductReviews);               // Get reviews for a product
