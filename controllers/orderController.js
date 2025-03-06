@@ -27,6 +27,12 @@ export const checkout = async (req, res) => {
     if (!cart || !cart.products.length) 
       return res.status(400).json({ message: "Cart is empty." });
 
+    // ✅ Check for an existing checkout entry for this user
+    let existingCheckout = await CheckoutModel.findOne({ 
+      customer: req.user._id, 
+      status: "pending" // Active (not completed)
+    });
+
     // ✅ Step 1: Calculate total product price before discount
     let totalProductPrice = cart.products.reduce(
       (sum, item) => sum + ((item.product.discount_price ?? item.product.price) * item.quantity),
@@ -92,7 +98,7 @@ export const checkout = async (req, res) => {
     // ✅ Apply Discount as a Stripe Coupon (Only for Products)
     const coupon = await stripe.coupons.create({
       amount_off: Math.round(discountAmount * 100), // Convert to cents
-      currency: "usd",  // ✅ Fix: Currency added
+      currency: "usd",
       duration: "once",
     });
 
@@ -108,19 +114,39 @@ export const checkout = async (req, res) => {
       metadata: { userId: req.user._id },
     });
 
-    // ✅ Save Checkout Details
-    await new CheckoutModel({
-      customer: req.user._id,
-      noOfItems: cart.products.length,
-      totalPrice: totalProductPrice, // Products total before discount
-      shipping,
-      offer,
-      netPrice,
-      stripeSessionId: session.id,
-      stripeSessionUrl: session.url,  // ✅ Store the Stripe checkout URL
-      stripeCustomerId,
-      products: cart.products.map(p => ({ product: p.product._id, quantity: p.quantity })),
-    }).save();
+    if (existingCheckout) {
+      // ✅ Update the existing checkout entry
+      await CheckoutModel.updateOne(
+        { _id: existingCheckout._id },
+        {
+          noOfItems: cart.products.length,
+          totalPrice: totalProductPrice,
+          shipping,
+          offer,
+          netPrice,
+          stripeSessionId: session.id,
+          stripeSessionUrl: session.url,
+          stripeCustomerId,
+          products: cart.products.map(p => ({ product: p.product._id, quantity: p.quantity })),
+        }
+      );
+      console.log("Checkout updated for user:", req.user._id);
+    } else {
+      // ✅ Create a new checkout entry
+      await new CheckoutModel({
+        customer: req.user._id,
+        noOfItems: cart.products.length,
+        totalPrice: totalProductPrice,
+        shipping,
+        offer,
+        netPrice,
+        stripeSessionId: session.id,
+        stripeSessionUrl: session.url,
+        stripeCustomerId,
+        products: cart.products.map(p => ({ product: p.product._id, quantity: p.quantity })),
+      }).save();
+      console.log("New checkout created for user:", req.user._id);
+    }
 
     res.status(200).json({ url: session.url });
   } catch (error) {
@@ -128,6 +154,7 @@ export const checkout = async (req, res) => {
     res.status(500).json({ errorMessage: error.message });
   }
 };
+
 
 
 
