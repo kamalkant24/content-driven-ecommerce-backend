@@ -38,7 +38,6 @@ export const createUserBlogs = async (req, res) => {
 
 // Get all blogs with pagination, search, tags, and category filters
 import mongoose from "mongoose";
-
 export const getAllBlogs = async (req, res) => {
   const { page = 1, pageSize = 10, search, tags, categories, vendorId } = req.query;
 
@@ -47,28 +46,44 @@ export const getAllBlogs = async (req, res) => {
     if (search) filters.title = { $regex: search, $options: 'i' };
     if (tags) filters.tags = { $in: tags.split(',') };
     if (categories) filters.categories = categories;
-    if (vendorId) filters.vendor = new mongoose.Types.ObjectId(vendorId); // ✅ Convert to ObjectId
+    if (vendorId) filters.vendor = new mongoose.Types.ObjectId(vendorId); 
 
-    const baseURL = "http://localhost:8080/assets/blogs"; // ✅ Blogs images base URL
+    const baseURL = "http://localhost:8080/assets/blogs";
+    const profileBaseURL = "http://localhost:8080/assets/profile";
 
     const blogs = await createBlogs.find(filters)
       .skip((page - 1) * parseInt(pageSize))
       .limit(parseInt(pageSize))
-      .populate("vendor", "name email") // ✅ Populate vendor details
-      .populate("likes", "name") // ✅ Populate likes to get user names
-      .populate("comments.user", "name"); // ✅ Populate commenters
+      .populate("vendor", "name email")
+      .populate("likes", "name")
+      .populate("comments.user", "name profile_img") // ✅ Populate comments users
+      .lean();
 
-    // ✅ Add full image URLs
-    const blogsWithImages = blogs.map(blog => ({
-      ...blog.toObject(),
+    // ✅ Add full image URLs & Sort comments
+    const blogsWithFormattedData = blogs.map(blog => ({
+      ...blog,
       image: blog.image?.map(img => `${baseURL}/${img}`) || [],
+      comments: blog.comments
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)) // ✅ Newest first
+        .map(comment => ({
+          _id: comment._id,
+          comment: comment.comment,
+          createdAt: comment.createdAt,
+          user: {
+            _id: comment.user._id,
+            name: comment.user.name,
+            profile_img: comment.user.profile_img
+              ? `${profileBaseURL}/${comment.user.profile_img}`
+              : null,
+          },
+        })),
     }));
 
     const totalBlogsCount = await createBlogs.countDocuments(filters);
 
     res.status(200).json({
       message: "Blogs fetched successfully",
-      data: blogsWithImages,
+      data: blogsWithFormattedData,
       total: totalBlogsCount,
     });
   } catch (err) {
@@ -79,29 +94,53 @@ export const getAllBlogs = async (req, res) => {
 
 
 
+
 // Get a single blog with populated comments and likes
 export const getBlogById = async (req, res) => {
   try {
-    const baseURL = "http://localhost:8080/assets/blogs"; // ✅ Base URL for blogs images
-    const blog = await createBlogs.findById(req.params.id).populate('comments.user', 'name');
+    const baseURL = "http://localhost:8080/assets/blogs";
+    const profileBaseURL = "http://localhost:8080/assets/profile";
+
+    const blog = await createBlogs
+      .findById(req.params.id)
+      .populate('vendor', 'name email')
+      .populate('likes', 'name')
+      .populate('comments.user', 'name profile_img')
+      .lean();
 
     if (!blog) return res.status(404).json({ message: "Blog not found" });
 
-    // ✅ Convert image filenames into full URLs
-    const blogWithImageURL = {
-      ...blog.toObject(),
+    // ✅ Convert blog image filenames into full URLs & Sort comments
+    const formattedBlog = {
+      ...blog,
       image: blog.image?.map(img => `${baseURL}/${img}`) || [],
+      comments: blog.comments
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)) // ✅ Newest first
+        .map(comment => ({
+          _id: comment._id,
+          comment: comment.comment,
+          createdAt: comment.createdAt,
+          user: {
+            _id: comment.user._id,
+            name: comment.user.name,
+            profile_img: comment.user.profile_img
+              ? `${profileBaseURL}/${comment.user.profile_img}`
+              : null,
+          },
+        })),
     };
 
     res.status(200).json({
       message: "Blog fetched successfully",
-      data: blogWithImageURL,
+      data: formattedBlog,
     });
   } catch (error) {
     console.error("Error fetching blog by ID:", error);
     res.status(400).json({ error: error.message });
   }
 };
+
+
 
 
 // Update a blog post
@@ -273,55 +312,53 @@ export const unlikeBlog = async (req, res) => {
 // Add a comment to a blog post
 export const commentOnBlog = async (req, res) => {
   const { comment } = req.body;
-
   if (!comment) return res.status(400).json({ message: "Comment is required." });
 
   try {
     const blog = await createBlogs.findById(req.params.id);
-
     if (!blog) return res.status(404).json({ message: "Blog not found" });
 
-    // ✅ New comment object
+    // ✅ New comment added
     const newComment = {
       user: req.user._id,
       comment,
-      createdAt: new Date()
+      createdAt: new Date(),
     };
 
     blog.comments.push(newComment);
     await blog.save();
 
-    // ✅ Base URLs for profile images & blog images
     const profileBaseURL = "http://localhost:8080/assets/profile";
     const blogImageBaseURL = "http://localhost:8080/assets/blogs";
 
-    // ✅ Fetch updated blog with populated comments
+    // ✅ Fetch updated blog with sorted comments
     const updatedBlog = await createBlogs.findById(req.params.id)
-      .populate("vendor", "name email") // Vendor info
-      .populate("likes", "name") // Likes info
-      .populate("comments.user", "name profile_img") // Populate name & profile_img
+      .populate("vendor", "name email")
+      .populate("likes", "name")
+      .populate("comments.user", "name profile_img")
       .lean();
 
-    // ✅ Convert blog image filenames to full URLs
     updatedBlog.image = updatedBlog.image.map(img => `${blogImageBaseURL}/${img}`);
 
-    // ✅ Modify comments to include full profile image URL
-    updatedBlog.comments = updatedBlog.comments.map(cmt => ({
-      _id: cmt._id,
-      comment: cmt.comment,
-      createdAt: cmt.createdAt,
-      user: {
-        _id: cmt.user._id,
-        name: cmt.user.name,
-        profile_img: cmt.user.profile_img
-          ? `${profileBaseURL}/${cmt.user.profile_img}` // Convert filename to full URL
-          : null
-      }
-    }));
+    // ✅ Sort comments (newest first) & update profile image URL
+    updatedBlog.comments = updatedBlog.comments
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .map(cmt => ({
+        _id: cmt._id,
+        comment: cmt.comment,
+        createdAt: cmt.createdAt,
+        user: {
+          _id: cmt.user._id,
+          name: cmt.user.name,
+          profile_img: cmt.user.profile_img
+            ? `${profileBaseURL}/${cmt.user.profile_img}`
+            : null,
+        },
+      }));
 
     res.status(200).json({ 
       message: "Comment added successfully", 
-      data: updatedBlog // ✅ Full blog with formatted images & comments
+      data: updatedBlog 
     });
 
   } catch (error) {
@@ -329,6 +366,7 @@ export const commentOnBlog = async (req, res) => {
     res.status(400).json({ error: error.message });
   }
 };
+
 
 
 export const editCommentOnBlog = async (req, res) => {
@@ -341,46 +379,45 @@ export const editCommentOnBlog = async (req, res) => {
     const blog = await createBlogs.findById(blogId);
     if (!blog) return res.status(404).json({ message: "Blog not found" });
 
-    // ✅ Find the comment inside the blog
     const commentToEdit = blog.comments.id(commentId);
     if (!commentToEdit) return res.status(404).json({ message: "Comment not found" });
 
-    // ✅ Check if the logged-in user is the owner of the comment
     if (commentToEdit.user.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: "You are not authorized to edit this comment" });
     }
 
-    // ✅ Update the comment
+    // ✅ Update comment
     commentToEdit.comment = comment;
     commentToEdit.createdAt = new Date();
     await blog.save();
 
-    // ✅ Populate vendor, likes, and comments (with name & profile_img)
-    const baseURL = "http://localhost:8080/assets/blogs";
     const profileBaseURL = "http://localhost:8080/assets/profile";
+    const blogImageBaseURL = "http://localhost:8080/assets/blogs";
 
+    // ✅ Fetch updated blog with sorted comments
     const updatedBlog = await createBlogs.findById(blogId)
       .populate("vendor", "name email")
       .populate("likes", "name")
       .populate("comments.user", "name profile_img")
       .lean();
 
-    // ✅ Add full image URLs
-    updatedBlog.image = updatedBlog.image?.map(img => `${baseURL}/${img}`) || [];
+    updatedBlog.image = updatedBlog.image?.map(img => `${blogImageBaseURL}/${img}`) || [];
 
-    // ✅ Format comments with full profile image URLs
-    updatedBlog.comments = updatedBlog.comments.map(comment => ({
-      _id: comment._id,
-      comment: comment.comment,
-      createdAt: comment.createdAt,
-      user: {
-        _id: comment.user._id,
-        name: comment.user.name,
-        profile_img: comment.user.profile_img
-          ? `${profileBaseURL}/${comment.user.profile_img}`
-          : null
-      }
-    }));
+    // ✅ Sort comments (newest first)
+    updatedBlog.comments = updatedBlog.comments
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .map(comment => ({
+        _id: comment._id,
+        comment: comment.comment,
+        createdAt: comment.createdAt,
+        user: {
+          _id: comment.user._id,
+          name: comment.user.name,
+          profile_img: comment.user.profile_img
+            ? `${profileBaseURL}/${comment.user.profile_img}`
+            : null,
+        },
+      }));
 
     res.status(200).json({ message: "Comment updated successfully", data: updatedBlog });
 
@@ -392,6 +429,7 @@ export const editCommentOnBlog = async (req, res) => {
 
 
 
+
 export const deleteCommentOnBlog = async (req, res) => {
   const { blogId, commentId } = req.params;
 
@@ -399,45 +437,43 @@ export const deleteCommentOnBlog = async (req, res) => {
     const blog = await createBlogs.findById(blogId);
     if (!blog) return res.status(404).json({ message: "Blog not found" });
 
-    // ✅ Find the comment inside the blog
     const commentIndex = blog.comments.findIndex(cmt => cmt._id.toString() === commentId);
     if (commentIndex === -1) return res.status(404).json({ message: "Comment not found" });
 
-    // ✅ Check if the logged-in user is the owner of the comment
     if (blog.comments[commentIndex].user.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: "You are not authorized to delete this comment" });
     }
 
-    // ✅ Remove the comment
     blog.comments.splice(commentIndex, 1);
     await blog.save();
 
-    // ✅ Fetch the updated blog with proper image URLs and populated comments
     const profileBaseURL = "http://localhost:8080/assets/profile";
     const blogImageBaseURL = "http://localhost:8080/assets/blogs";
 
+    // ✅ Fetch updated blog with sorted comments
     const updatedBlog = await createBlogs.findById(blogId)
       .populate("vendor", "name email")
       .populate("likes", "name")
       .populate("comments.user", "name profile_img")
       .lean();
 
-    // ✅ Convert blog images to full URLs
     updatedBlog.image = updatedBlog.image.map(img => `${blogImageBaseURL}/${img}`);
 
-    // ✅ Format comments to include full profile image URLs
-    updatedBlog.comments = updatedBlog.comments.map(cmt => ({
-      _id: cmt._id,
-      comment: cmt.comment,
-      createdAt: cmt.createdAt,
-      user: {
-        _id: cmt.user._id,
-        name: cmt.user.name,
-        profile_img: cmt.user.profile_img
-          ? `${profileBaseURL}/${cmt.user.profile_img}`
-          : null
-      }
-    }));
+    // ✅ Sort comments (newest first)
+    updatedBlog.comments = updatedBlog.comments
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .map(cmt => ({
+        _id: cmt._id,
+        comment: cmt.comment,
+        createdAt: cmt.createdAt,
+        user: {
+          _id: cmt.user._id,
+          name: cmt.user.name,
+          profile_img: cmt.user.profile_img
+            ? `${profileBaseURL}/${cmt.user.profile_img}`
+            : null,
+        },
+      }));
 
     res.status(200).json({ 
       message: "Comment deleted successfully", 
