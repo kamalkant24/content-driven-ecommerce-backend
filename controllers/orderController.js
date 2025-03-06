@@ -75,13 +75,8 @@ export const checkout = async (req, res) => {
     });
 
     // ✅ Fetch User Details
-    let user = await userRegister.findById(req.user._id);
+    let user = await userRegister.findById(req.user._id).lean();
     if (!user) return res.status(404).json({ message: "User not found." });
-
-    // ✅ Remove Validation for Industry and Phone Number
-    user.industry = user.industry || "";
-    user.phone = user.phone || "";
-    await user.save();
 
     // ✅ Manage Stripe Customer ID
     let stripeCustomerId = user.stripeCustomerId;
@@ -91,8 +86,7 @@ export const checkout = async (req, res) => {
         name: `${user.firstName} ${user.lastName}`,
       });
       stripeCustomerId = customer.id;
-      user.stripeCustomerId = stripeCustomerId;
-      await user.save();
+      await userRegister.updateOne({ _id: req.user._id }, { stripeCustomerId });
     }
 
     // ✅ Apply Discount as a Stripe Coupon (Only for Products)
@@ -133,6 +127,7 @@ export const checkout = async (req, res) => {
     res.status(500).json({ errorMessage: error.message });
   }
 };
+
 
 
 export const stripeWebhook = async (req, res) => {
