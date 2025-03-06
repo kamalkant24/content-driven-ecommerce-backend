@@ -11,7 +11,6 @@ import {sendOrderConfirmationEmail} from "../utils/sendEmail.js";
 dotenv.config();
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-
 export const checkout = async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ message: "Unauthorized access." });
@@ -20,36 +19,29 @@ export const checkout = async (req, res) => {
     if (!shipping?.price || !offer?.discount)
       return res.status(400).json({ message: "Invalid shipping or offer details." });
 
-    // ✅ Fetch only the logged-in user's cart
     const cart = await userCart.findOne({ customer: req.user._id })
       .populate("products.product", "title price discount_price");
 
     if (!cart || !cart.products.length) 
       return res.status(400).json({ message: "Cart is empty." });
 
-    // ✅ Check if an existing pending checkout entry exists for this user
     let existingCheckout = await CheckoutModel.findOne({ 
       customer: req.user._id, 
-      status: "pending"
+      paymentStatus: "pending" 
     });
 
-    // ✅ Step 1: Calculate total product price before discount
     let totalProductPrice = cart.products.reduce(
       (sum, item) => sum + ((item.product.discount_price ?? item.product.price) * item.quantity),
       0
     );
 
-    // ✅ Ensure that totalPrice in checkout is SAME as in cart
     if (totalProductPrice !== cart.totalPrice) {
       console.error("Mismatch in totalPrice!", { cartTotal: cart.totalPrice, calculatedTotal: totalProductPrice });
       return res.status(400).json({ message: "Total price mismatch. Please refresh your cart." });
     }
 
-    // ✅ Step 2: Apply discount only on products
     const discountAmount = (totalProductPrice * offer.discount) / 100;
     const discountedPrice = totalProductPrice - discountAmount;
-
-    // ✅ Step 3: Add shipping charge AFTER discount
     const netPrice = (discountedPrice + shipping.price).toFixed(2);
 
     console.log({
@@ -60,7 +52,6 @@ export const checkout = async (req, res) => {
       netPrice
     });
 
-    // ✅ Prepare Stripe Line Items
     const lineItems = cart.products.map(item => ({
       price_data: {
         currency: "usd",
@@ -70,7 +61,6 @@ export const checkout = async (req, res) => {
       quantity: item.quantity,
     }));
 
-    // ✅ Add Shipping as a Separate Line Item
     lineItems.push({
       price_data: {
         currency: "usd",
@@ -80,11 +70,9 @@ export const checkout = async (req, res) => {
       quantity: 1,
     });
 
-    // ✅ Fetch User Details
     let user = await userRegister.findById(req.user._id).lean();
     if (!user) return res.status(404).json({ message: "User not found." });
 
-    // ✅ Manage Stripe Customer ID
     let stripeCustomerId = user.stripeCustomerId;
     if (!stripeCustomerId) {
       const customer = await stripe.customers.create({
@@ -95,27 +83,24 @@ export const checkout = async (req, res) => {
       await userRegister.updateOne({ _id: req.user._id }, { stripeCustomerId });
     }
 
-    // ✅ Apply Discount as a Stripe Coupon (Only for Products)
     const coupon = await stripe.coupons.create({
-      amount_off: Math.round(discountAmount * 100), // Convert to cents
+      amount_off: Math.round(discountAmount * 100),
       currency: "usd",
       duration: "once",
     });
 
-    // ✅ Create Stripe Checkout Session
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       mode: "payment",
       customer: stripeCustomerId,
-      success_url: `${process.env.CLIENT_URL}/order-success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.CLIENT_URL}/order-cancelled`,
+      success_url: `http://localhost:5173/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `http://localhost:5173/payment/failure`,
       line_items: lineItems,
       discounts: [{ coupon: coupon.id }],
       metadata: { userId: req.user._id },
     });
 
     if (existingCheckout) {
-      // ✅ Update the existing checkout entry
       await CheckoutModel.updateOne(
         { _id: existingCheckout._id },
         {
@@ -130,9 +115,8 @@ export const checkout = async (req, res) => {
           products: cart.products.map(p => ({ product: p.product._id, quantity: p.quantity })),
         }
       );
-      console.log("Checkout updated for user:", req.user._id);
+      console.log("✅ Existing checkout updated for user:", req.user._id);
     } else {
-      // ✅ Create a new checkout entry
       await new CheckoutModel({
         customer: req.user._id,
         noOfItems: cart.products.length,
@@ -144,18 +128,17 @@ export const checkout = async (req, res) => {
         stripeSessionUrl: session.url,
         stripeCustomerId,
         products: cart.products.map(p => ({ product: p.product._id, quantity: p.quantity })),
+        paymentStatus: "pending"
       }).save();
-      console.log("New checkout created for user:", req.user._id);
+      console.log("✅ New checkout created for user:", req.user._id);
     }
 
     res.status(200).json({ url: session.url });
   } catch (error) {
-    console.error("Checkout Error:", error);
+    console.error("❌ Checkout Error:", error);
     res.status(500).json({ errorMessage: error.message });
   }
 };
-
-
 
 
 
@@ -181,7 +164,6 @@ export const stripeWebhook = async (req, res) => {
     const paymentIntent = event.data.object;
 
     try {
-      // Retrieve Checkout Session associated with the Payment Intent
       const sessionList = await stripe.checkout.sessions.list({
         payment_intent: paymentIntent.id,
         limit: 1,
@@ -194,7 +176,6 @@ export const stripeWebhook = async (req, res) => {
 
       const session = sessionList.data[0];
 
-      // ✅ Update the Payment Intent with the Checkout Session ID if missing
       if (!paymentIntent.metadata?.stripeSessionId) {
         await stripe.paymentIntents.update(paymentIntent.id, {
           metadata: { stripeSessionId: session.id },
@@ -202,7 +183,6 @@ export const stripeWebhook = async (req, res) => {
         console.log(`🔄 Added stripeSessionId to Payment Intent metadata: ${session.id}`);
       }
 
-      // Find the checkout data using the Checkout Session ID
       const checkoutData = await CheckoutModel.findOne({ stripeSessionId: session.id }).populate("customer");
 
       if (!checkoutData) {
@@ -212,7 +192,11 @@ export const stripeWebhook = async (req, res) => {
 
       console.log(`🔍 Found checkout session: ${session.id}`);
 
-      // ✅ Fetch user's address (string) from userRegister model
+      // ✅ Update checkout schema with paymentStatus completed
+      checkoutData.paymentStatus = "completed";
+      await checkoutData.save();
+      console.log(`✅ Updated checkout payment status to completed for session: ${session.id}`);
+
       const user = await userRegister.findById(checkoutData.customer._id);
 
       if (!user || !user.address) {
@@ -220,7 +204,7 @@ export const stripeWebhook = async (req, res) => {
         return res.status(404).json({ message: "User address not found." });
       }
 
-      const shippingAddress = user.address; // Address is a string in the schema
+      const shippingAddress = user.address;
 
       const newOrder = new Order({
         customer: checkoutData.customer._id,
@@ -229,7 +213,7 @@ export const stripeWebhook = async (req, res) => {
         paymentStatus: "completed",
         paymentMethod: session.payment_method_types?.[0] || "unknown",
         orderStatus: "pending",
-        shippingAddress, // ✅ Directly use the string address
+        shippingAddress,
         createdAt: new Date(checkoutData.createdAt),
       });
 
