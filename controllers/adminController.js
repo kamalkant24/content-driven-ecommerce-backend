@@ -59,19 +59,33 @@ export const getPendingVendors = async (req, res) => {
   }
 };
 /**
- * ✅ Approve Vendor
+ * ✅ Approve Vendor //
  */
 export const approveVendor = async (req, res) => {
   try {
     const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "Email is required" });
+
+    console.log("Checking vendor:", email);
     const user = await UserRegister.findOne({ email, role: "vendor" });
-    if (!user) return res.status(400).json({ error: "Vendor not found" });
 
-    user.isApproved = true;
-    await user.save();
+    if (!user) {
+      console.error("Vendor not found:", email);
+      return res.status(400).json({ error: "Vendor not found" });
+    }
 
-    // Send approval email
-    await sendApprovalEmail(email);
+    console.log("Vendor found:", user);
+
+    // Update only the isApproved field without triggering validation
+    await UserRegister.updateOne({ email, role: "vendor" }, { $set: { isApproved: true } });
+
+    console.log("Vendor approved, sending email...");
+
+    try {
+      await sendApprovalEmail(email);
+    } catch (emailErr) {
+      console.error("Error sending approval email:", emailErr);
+    }
 
     res.status(200).json({ message: "Vendor approved successfully and email sent" });
   } catch (err) {

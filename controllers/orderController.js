@@ -78,6 +78,11 @@ export const checkout = async (req, res) => {
     let user = await userRegister.findById(req.user._id);
     if (!user) return res.status(404).json({ message: "User not found." });
 
+    // ✅ Remove Validation for Industry and Phone Number
+    user.industry = user.industry || "";
+    user.phone = user.phone || "";
+    await user.save();
+
     // ✅ Manage Stripe Customer ID
     let stripeCustomerId = user.stripeCustomerId;
     if (!stripeCustomerId) {
