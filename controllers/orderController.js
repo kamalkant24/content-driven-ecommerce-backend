@@ -39,7 +39,16 @@ export const checkout = async (req, res) => {
     const discountedPrice = totalProductPrice - discountAmount;
     const netPrice = (discountedPrice + shipping.price).toFixed(2);
 
-    // Check for an existing pending checkout
+    // ✅ 1️⃣ **Check if the user has a "completed" checkout**
+    const lastCheckout = await CheckoutModel.findOne({
+      customer: req.user._id,
+    }).sort({ createdAt: -1 }); // Get the latest checkout entry
+
+    if (lastCheckout && lastCheckout.paymentStatus === "completed") {
+      console.log("✅ Previous checkout was completed. Creating a new checkout entry...");
+    }
+
+    // ✅ 2️⃣ **Check for an existing "pending" checkout**
     let existingCheckout = await CheckoutModel.findOne({
       customer: req.user._id,
       paymentStatus: "pending",
@@ -65,9 +74,9 @@ export const checkout = async (req, res) => {
         shipping,
         offer,
         netPrice,
-        stripeCustomerId: null, // Will be updated below
-        stripeSessionId: null, // Placeholder for sessionId
-        stripeSessionUrl: null, // Placeholder for sessionUrl
+        stripeCustomerId: null, 
+        stripeSessionId: null, 
+        stripeSessionUrl: null, 
         products: cart.products.map(p => ({ product: p.product._id, quantity: p.quantity })),
         paymentStatus: "pending",
       });
@@ -116,12 +125,12 @@ export const checkout = async (req, res) => {
       duration: "once",
     });
 
-    // ✅ **Now create Stripe session**
+    // ✅ **Create Stripe session**
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       mode: "payment",
       customer: stripeCustomerId,
-      success_url: `http://localhost:5173/payment/pending`,
+      success_url: `http://localhost:5173/payment/success`,
       cancel_url: `http://localhost:5173/payment/failure`,
       line_items: lineItems,
       discounts: [{ coupon: coupon.id }],
@@ -140,6 +149,7 @@ export const checkout = async (req, res) => {
     res.status(500).json({ errorMessage: error.message });
   }
 };
+
 
 
 export const stripeWebhook = async (req, res) => {
