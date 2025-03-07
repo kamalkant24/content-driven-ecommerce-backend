@@ -39,32 +39,13 @@ export const checkout = async (req, res) => {
     const discountedPrice = totalProductPrice - discountAmount;
     const netPrice = (discountedPrice + shipping.price).toFixed(2);
 
-    // ✅ 1️⃣ **Check if the user has a "completed" checkout**
-    const lastCheckout = await CheckoutModel.findOne({
-      customer: req.user._id,
-    }).sort({ createdAt: -1 }); // Get the latest checkout entry
-
-    if (lastCheckout && lastCheckout.paymentStatus === "completed") {
-      console.log("✅ Previous checkout was completed. Creating a new checkout entry...");
-    }
-
-    // ✅ 2️⃣ **Check for an existing "pending" checkout**
+    // Check if user has an existing checkout
     let existingCheckout = await CheckoutModel.findOne({
       customer: req.user._id,
-      paymentStatus: "pending",
     });
 
-    if (existingCheckout) {
+    if (existingCheckout && existingCheckout.paymentStatus === "pending") {
       console.log("🟡 Updating existing pending checkout...");
-      existingCheckout.noOfItems = cart.products.length;
-      existingCheckout.totalPrice = totalProductPrice;
-      existingCheckout.shipping = shipping;
-      existingCheckout.offer = offer;
-      existingCheckout.netPrice = netPrice;
-      existingCheckout.products = cart.products.map(p => ({
-        product: p.product._id,
-        quantity: p.quantity,
-      }));
     } else {
       console.log("🆕 Creating new checkout entry...");
       existingCheckout = new CheckoutModel({
@@ -125,19 +106,19 @@ export const checkout = async (req, res) => {
       duration: "once",
     });
 
-    // ✅ **Create Stripe session**
+    // ✅ **Always create a new Stripe session**
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       mode: "payment",
       customer: stripeCustomerId,
-      success_url: `http://localhost:5173/payment/success`,
+      success_url: `http://localhost:5173/payment/pending`,
       cancel_url: `http://localhost:5173/payment/failure`,
       line_items: lineItems,
       discounts: [{ coupon: coupon.id }],
       metadata: { userId: req.user._id },
     });
 
-    // ✅ **Save session details AFTER session is created**
+    // ✅ **Save session details**
     existingCheckout.stripeSessionId = session.id;
     existingCheckout.stripeSessionUrl = session.url;
     await existingCheckout.save();
@@ -149,6 +130,7 @@ export const checkout = async (req, res) => {
     res.status(500).json({ errorMessage: error.message });
   }
 };
+
 
 
 
