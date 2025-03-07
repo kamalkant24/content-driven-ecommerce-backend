@@ -111,7 +111,7 @@ export const checkout = async (req, res) => {
       payment_method_types: ["card"],
       mode: "payment",
       customer: stripeCustomerId,
-      success_url: `http://localhost:5173/payment/pending`,
+      success_url: `http://localhost:5173/payment/success`,
       cancel_url: `http://localhost:5173/payment/failure`,
       line_items: lineItems,
       discounts: [{ coupon: coupon.id }],
