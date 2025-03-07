@@ -25,32 +25,18 @@ export const checkout = async (req, res) => {
     if (!cart || !cart.products.length) 
       return res.status(400).json({ message: "Cart is empty." });
 
-    let existingCheckout = await CheckoutModel.findOne({ 
-      customer: req.user._id, 
-      paymentStatus: "pending" 
-    });
-
     let totalProductPrice = cart.products.reduce(
       (sum, item) => sum + ((item.product.discount_price ?? item.product.price) * item.quantity),
       0
     );
 
     if (totalProductPrice !== cart.totalPrice) {
-      console.error("Mismatch in totalPrice!", { cartTotal: cart.totalPrice, calculatedTotal: totalProductPrice });
       return res.status(400).json({ message: "Total price mismatch. Please refresh your cart." });
     }
 
     const discountAmount = (totalProductPrice * offer.discount) / 100;
     const discountedPrice = totalProductPrice - discountAmount;
     const netPrice = (discountedPrice + shipping.price).toFixed(2);
-
-    console.log({
-      totalProductPrice, 
-      discountAmount, 
-      discountedPrice, 
-      shippingCharge: shipping.price,
-      netPrice
-    });
 
     const lineItems = cart.products.map(item => ({
       price_data: {
@@ -93,45 +79,26 @@ export const checkout = async (req, res) => {
       payment_method_types: ["card"],
       mode: "payment",
       customer: stripeCustomerId,
-      success_url: `http://localhost:5173/payment/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `http://localhost:5173/payment/failure`,
+      success_url: `http://localhost:5173/payment/pending`, // Temporary pending page
+      cancel_url: `http://localhost:5173/payment/failure`, // Failure page remains the same
       line_items: lineItems,
       discounts: [{ coupon: coupon.id }],
       metadata: { userId: req.user._id },
     });
 
-    if (existingCheckout) {
-      await CheckoutModel.updateOne(
-        { _id: existingCheckout._id },
-        {
-          noOfItems: cart.products.length,
-          totalPrice: totalProductPrice,
-          shipping,
-          offer,
-          netPrice,
-          stripeSessionId: session.id,
-          stripeSessionUrl: session.url,
-          stripeCustomerId,
-          products: cart.products.map(p => ({ product: p.product._id, quantity: p.quantity })),
-        }
-      );
-      console.log("✅ Existing checkout updated for user:", req.user._id);
-    } else {
-      await new CheckoutModel({
-        customer: req.user._id,
-        noOfItems: cart.products.length,
-        totalPrice: totalProductPrice,
-        shipping,
-        offer,
-        netPrice,
-        stripeSessionId: session.id,
-        stripeSessionUrl: session.url,
-        stripeCustomerId,
-        products: cart.products.map(p => ({ product: p.product._id, quantity: p.quantity })),
-        paymentStatus: "pending"
-      }).save();
-      console.log("✅ New checkout created for user:", req.user._id);
-    }
+    await new CheckoutModel({
+      customer: req.user._id,
+      noOfItems: cart.products.length,
+      totalPrice: totalProductPrice,
+      shipping,
+      offer,
+      netPrice,
+      stripeSessionId: session.id,
+      stripeSessionUrl: session.url,
+      stripeCustomerId,
+      products: cart.products.map(p => ({ product: p.product._id, quantity: p.quantity })),
+      paymentStatus: "pending"
+    }).save();
 
     res.status(200).json({ url: session.url });
   } catch (error) {
@@ -139,19 +106,15 @@ export const checkout = async (req, res) => {
     res.status(500).json({ errorMessage: error.message });
   }
 };
-
-
-
 export const stripeWebhook = async (req, res) => {
   const sig = req.headers['stripe-signature'];
 
   if (!sig) {
     console.error("❌ No stripe-signature header provided.");
-    return res.status(400).json({ message: "No stripe-signature header value was provided." });
+    return res.status(400).json({ message: "No stripe-signature header provided." });
   }
 
   let event;
-
   try {
     event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
     console.log(`✅ Signature verified. Event type: ${event.type}`);
@@ -183,6 +146,7 @@ export const stripeWebhook = async (req, res) => {
         console.log(`🔄 Added stripeSessionId to Payment Intent metadata: ${session.id}`);
       }
 
+      // ✅ Check if payment is already completed
       const checkoutData = await CheckoutModel.findOne({ stripeSessionId: session.id }).populate("customer");
 
       if (!checkoutData) {
@@ -190,7 +154,12 @@ export const stripeWebhook = async (req, res) => {
         return res.status(404).json({ message: "Checkout data not found." });
       }
 
-      console.log(`🔍 Found checkout session: ${session.id}`);
+      if (checkoutData.paymentStatus === "completed") {
+        console.warn(`⚠️ Payment already processed for session: ${session.id}`);
+        return res.status(200).json({ message: "Payment already processed." });
+      }
+
+      console.log(`🔍 Processing payment for session: ${session.id}`);
 
       // ✅ Update checkout schema with paymentStatus completed
       checkoutData.paymentStatus = "completed";
@@ -231,10 +200,16 @@ export const stripeWebhook = async (req, res) => {
         console.warn("⚠️ No customer email found in session or payment intent.");
       }
 
+      // ✅ Redirect to success page after successful payment
+      return res.redirect(`http://localhost:5173/payment/success?session_id=${session.id}`);
+
     } catch (err) {
       console.error(`❌ Error handling payment intent: ${err.message}`);
       return res.status(500).json({ message: "Error processing order." });
     }
+  } else {
+    // ❌ Redirect to failure page if payment is not completed
+    return res.redirect(`http://localhost:5173/payment/failure`);
   }
 
   res.status(200).json({ received: true });
