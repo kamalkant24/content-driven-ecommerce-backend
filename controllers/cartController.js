@@ -91,44 +91,61 @@ export const getCarts = async (req, res) => {
 export const updateCart = async (req, res) => {
   try {
     const { productId, count } = req.body;
-    const baseURL = "http://localhost:8080/assets/products"; // Define baseURL
+    const baseURL = "http://localhost:8080/assets/products"; // Define base URL
 
-    const cart = await userCart.findOne({ customer: req.user._id });
+    console.log("Update Cart Request:", req.body);
+
+    // Fetch cart and ensure products are populated
+    const cart = await userCart.findOne({ customer: req.user._id }).populate({
+      path: "products.product",
+      model: "userProducts",
+    });
+
     if (!cart) {
       return res.status(404).json({ message: "Cart not found" });
     }
 
+    console.log("Cart Data:", JSON.stringify(cart, null, 2));
+
+    // Find product in cart
     const productIndex = cart.products.findIndex(
-      (item) => String(item.product) === String(productId)
+      (item) => item.product && String(item.product._id) === String(productId)
     );
 
     if (productIndex === -1) {
       return res.status(404).json({ message: "Product not found in cart" });
     }
 
-    const product = await userProducts.findById(productId);
+    const product = cart.products[productIndex].product;
+
     if (!product) {
-      return res.status(404).json({ message: "Product not found" });
+      return res.status(404).json({ message: "Product details missing in cart" });
     }
+
+    console.log("Product in Cart:", JSON.stringify(product, null, 2));
 
     const quantityDifference = count - cart.products[productIndex].quantity;
 
-    // If increasing quantity, check stock
+    // Validate stock before updating
     if (quantityDifference > 0 && product.quantity < quantityDifference) {
       return res.status(400).json({ message: "Not enough stock available" });
     }
 
-    // Adjust stock accordingly
+    // Adjust stock and save product
     product.quantity -= quantityDifference;
     await product.save();
 
-    // Update the cart quantity
+    // Update cart quantity
     cart.products[productIndex].quantity = count;
     await cart.save();
 
-    const updatedCart = await cart.populate("products.product");
+    // Re-fetch cart with updated data
+    const updatedCart = await userCart.findOne({ customer: req.user._id }).populate({
+      path: "products.product",
+      model: "userProducts",
+    });
 
-    // **Add image URLs like in getCarts**
+    // Add image URLs to response
     const cartWithImageURLs = {
       ...updatedCart.toObject(),
       products: updatedCart.products.map((item) => ({
@@ -146,9 +163,11 @@ export const updateCart = async (req, res) => {
     });
 
   } catch (error) {
+    console.error("Error updating cart:", error);
     res.status(500).json({ errorMessage: error.message });
   }
 };
+
 
 // Remove a product from the cart
 export const removeFromCart = async (req, res) => {

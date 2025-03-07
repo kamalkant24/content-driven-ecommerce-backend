@@ -19,6 +19,7 @@ export const checkout = async (req, res) => {
     if (!shipping?.price || !offer?.discount)
       return res.status(400).json({ message: "Invalid shipping or offer details." });
 
+    // Fetch user's cart with populated product details
     const cart = await userCart.findOne({ customer: req.user._id })
       .populate("products.product", "title price discount_price");
 
@@ -38,6 +39,41 @@ export const checkout = async (req, res) => {
     const discountedPrice = totalProductPrice - discountAmount;
     const netPrice = (discountedPrice + shipping.price).toFixed(2);
 
+    // Check for an existing pending checkout
+    let existingCheckout = await CheckoutModel.findOne({
+      customer: req.user._id,
+      paymentStatus: "pending",
+    });
+
+    if (existingCheckout) {
+      console.log("🟡 Updating existing pending checkout...");
+      existingCheckout.noOfItems = cart.products.length;
+      existingCheckout.totalPrice = totalProductPrice;
+      existingCheckout.shipping = shipping;
+      existingCheckout.offer = offer;
+      existingCheckout.netPrice = netPrice;
+      existingCheckout.products = cart.products.map(p => ({
+        product: p.product._id,
+        quantity: p.quantity,
+      }));
+    } else {
+      console.log("🆕 Creating new checkout entry...");
+      existingCheckout = new CheckoutModel({
+        customer: req.user._id,
+        noOfItems: cart.products.length,
+        totalPrice: totalProductPrice,
+        shipping,
+        offer,
+        netPrice,
+        stripeCustomerId: null, // Will be updated below
+        stripeSessionId: null, // Placeholder for sessionId
+        stripeSessionUrl: null, // Placeholder for sessionUrl
+        products: cart.products.map(p => ({ product: p.product._id, quantity: p.quantity })),
+        paymentStatus: "pending",
+      });
+    }
+
+    // Prepare line items for Stripe checkout
     const lineItems = cart.products.map(item => ({
       price_data: {
         currency: "usd",
@@ -56,9 +92,11 @@ export const checkout = async (req, res) => {
       quantity: 1,
     });
 
+    // Fetch user details
     let user = await userRegister.findById(req.user._id).lean();
     if (!user) return res.status(404).json({ message: "User not found." });
 
+    // Create Stripe customer if not exists
     let stripeCustomerId = user.stripeCustomerId;
     if (!stripeCustomerId) {
       const customer = await stripe.customers.create({
@@ -69,43 +107,41 @@ export const checkout = async (req, res) => {
       await userRegister.updateOne({ _id: req.user._id }, { stripeCustomerId });
     }
 
+    existingCheckout.stripeCustomerId = stripeCustomerId;
+
+    // Create Stripe discount coupon
     const coupon = await stripe.coupons.create({
       amount_off: Math.round(discountAmount * 100),
       currency: "usd",
       duration: "once",
     });
 
+    // ✅ **Now create Stripe session**
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       mode: "payment",
       customer: stripeCustomerId,
-      success_url: `http://localhost:5173/payment/pending`, // Temporary pending page
-      cancel_url: `http://localhost:5173/payment/failure`, // Failure page remains the same
+      success_url: `http://localhost:5173/payment/pending`,
+      cancel_url: `http://localhost:5173/payment/failure`,
       line_items: lineItems,
       discounts: [{ coupon: coupon.id }],
       metadata: { userId: req.user._id },
     });
 
-    await new CheckoutModel({
-      customer: req.user._id,
-      noOfItems: cart.products.length,
-      totalPrice: totalProductPrice,
-      shipping,
-      offer,
-      netPrice,
-      stripeSessionId: session.id,
-      stripeSessionUrl: session.url,
-      stripeCustomerId,
-      products: cart.products.map(p => ({ product: p.product._id, quantity: p.quantity })),
-      paymentStatus: "pending"
-    }).save();
+    // ✅ **Save session details AFTER session is created**
+    existingCheckout.stripeSessionId = session.id;
+    existingCheckout.stripeSessionUrl = session.url;
+    await existingCheckout.save();
 
     res.status(200).json({ url: session.url });
+
   } catch (error) {
     console.error("❌ Checkout Error:", error);
     res.status(500).json({ errorMessage: error.message });
   }
 };
+
+
 export const stripeWebhook = async (req, res) => {
   const sig = req.headers['stripe-signature'];
 
