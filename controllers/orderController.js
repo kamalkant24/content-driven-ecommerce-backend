@@ -291,6 +291,28 @@ export const getCheckoutsByCustomer = async (req, res) => {
   }
 };
 
+export const getOrdersByUserId = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const token = req.header("Authorization");
+    const decoded = verifyToken(token);
+
+    if (!decoded) return res.status(401).json({ message: "Invalid or expired token" });
+
+    // Admin can fetch any user's orders, users can only fetch their own
+    if (!decoded.isAdmin && decoded._id.toString() !== userId) {
+      return res.status(403).json({ message: "You can only view your own orders" });
+    }
+
+    const orders = await Order.find({ customer: userId }).populate("products.product");
+
+    if (!orders.length) return res.status(404).json({ message: "No orders found for this user" });
+
+    res.status(200).json({ orders });
+  } catch (error) {
+    res.status(500).json({ errorMessage: error.message });
+  }
+};
 
 
 // ✅ Get all orders for a user

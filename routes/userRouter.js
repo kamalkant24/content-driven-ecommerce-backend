@@ -14,7 +14,8 @@ import {
   unlikeBlog,
   commentOnBlog,
   editCommentOnBlog,
-  deleteCommentOnBlog
+  deleteCommentOnBlog,
+ 
 } from "../controllers/blogsController.js";
 import { createUserProducts, getAllProducts, getProductById, updateProduct, deleteProduct, getVendorProducts } from "../controllers/productsController.js";
 import { searchAll } from "../controllers/globalSearchController.js";
@@ -26,7 +27,7 @@ import { addToCart, getCarts, updateCart, removeFromCart } from "../controllers/
 import {
   getUserOrders, getOrderById,
   updateOrderStatus, cancelOrder, deleteOrder, checkout,
-  stripeWebhook,getCheckoutsByCustomer
+  stripeWebhook,getCheckoutsByCustomer,getOrdersByUserId
 } from "../controllers/orderController.js";
 import {
   addReview, getProductReviews, editReview,
@@ -103,6 +104,7 @@ userRouter.delete("/remove-from-cart/:id", verifyToken, verifyCustomerRole, remo
 // userRouter.post("/create-order", verifyToken, createOrder);
 userRouter.get("/get-user-orders", verifyToken, getUserOrders);
 userRouter.get("/get-order/:orderId", verifyToken, getOrderById);
+userRouter.get("/get-orders-by-user/:userId", verifyToken, getOrdersByUserId);
 userRouter.put("/update-order-status/:orderId", verifyToken, updateOrderStatus);
 userRouter.put("/cancel-order/:orderId", verifyToken, cancelOrder);
 userRouter.delete("/delete-order/:orderId", verifyToken, deleteOrder);
@@ -111,7 +113,8 @@ userRouter.delete("/delete-order/:orderId", verifyToken, deleteOrder);
 userRouter.post("/checkout", verifyToken, checkout);
 
 // Add the Stripe Webhook route
-userRouter.post('/stripe-webhook', stripeWebhook);
+userRouter.post("/stripe-webhook", stripeWebhook);
+
 
 
 userRouter.get("/checkout/:customerId", getCheckoutsByCustomer);
