@@ -103,7 +103,7 @@ userRouter.delete("/remove-from-cart/:id", verifyToken, verifyCustomerRole, remo
 // Order Routes
 // userRouter.post("/create-order", verifyToken, createOrder);
 userRouter.get("/get-user-orders", verifyToken, getUserOrders);
-userRouter.get("/get-order/:orderId", verifyToken, getOrderById);
+userRouter.get("/get-order/:orderId", verifyToken, getOrderById); 
 userRouter.get("/get-orders-by-user/:userId", verifyToken, getOrdersByUserId);
 userRouter.put("/update-order-status/:orderId", verifyToken, updateOrderStatus);
 userRouter.put("/cancel-order/:orderId", verifyToken, cancelOrder);

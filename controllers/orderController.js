@@ -388,25 +388,52 @@ export const cancelOrder = async (req, res) => {
 // ✅ Get order by ID
 export const getOrderById = async (req, res) => {
   try {
-    const { orderId } = req.params;
-    const token = req.header("Authorization");
-    const decoded = verifyToken(token);
+    console.log("Request Headers:", req.headers); // Debugging
 
-    if (!decoded) return res.status(401).json({ message: "Invalid or expired token" });
+    const { orderId } = req.params;
+    const decoded = req.user; // ✅ Use req.user from middleware
+
+    if (!decoded) {
+      return res.status(401).json({ message: "Invalid or expired token" });
+    }
 
     const order = await Order.findById(orderId).populate("products.product");
 
-    if (!order) return res.status(404).json({ message: "Order not found" });
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
 
+    // ✅ Check if the user is the owner of the order or an admin
     if (order.customer.toString() !== decoded._id.toString() && !decoded.isAdmin) {
       return res.status(403).json({ message: "You do not have permission to view this order" });
     }
 
-    res.status(200).json({ order });
+    const baseURL = "http://localhost:8080/assets/products";
+
+    // ✅ Convert product images to full URLs
+    const orderWithImageURLs = {
+      ...order.toObject(),
+      products: order.products.map(p => ({
+        ...p.toObject(),
+        product: p.product
+          ? {
+              ...p.product.toObject(),
+              images: Array.isArray(p.product.images)
+                ? p.product.images.map(image => `${baseURL}/${image}`)
+                : [],
+            }
+          : null, 
+      })),
+    };
+
+    res.status(200).json({ order: orderWithImageURLs });
+
   } catch (error) {
+    console.error("Error fetching order:", error);
     res.status(500).json({ errorMessage: error.message });
   }
 };
+
 
 // ✅ Update an order's status (Admin only)
 export const updateOrderStatus = async (req, res) => {
